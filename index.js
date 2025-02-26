@@ -356,7 +356,7 @@ bot.on('callback_query', async (query) => {
     if (error || !subscription || new Date(subscription.end_date) < new Date()) {
       bot.sendMessage(chatId, 'У вас нет активной подписки. Подпишитесь на один из тарифов.');
     } else {
-      const miniAppUrl = 'https://baguvix-mini-app.vercel.app';
+      const miniAppUrl = `https://baguvix-mini-app.vercel.app/login?chatId=${chatId}`;
       bot.sendMessage(chatId, 'Открыть мини-приложение', {
         reply_markup: {
           inline_keyboard: [
