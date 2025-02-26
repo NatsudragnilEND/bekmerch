@@ -32,7 +32,6 @@ app.use(cors(corsOptions));
 app.get('/auth/telegram', async (req, res) => {
   const { id, username, hash } = req.query;
 
-  // Data is valid, authenticate the user
   const { data, error } = await supabase
     .from('usersa')
     .select('*')
@@ -40,7 +39,6 @@ app.get('/auth/telegram', async (req, res) => {
     .single();
 
   if (error && error.code === 'PGRST116') {
-    // User not found, create a new user
     const { error: insertError } = await supabase
       .from('usersa')
       .insert([{ telegram_id: id, username }]);
@@ -182,10 +180,9 @@ app.post('/api/subscription/extend', async (req, res) => {
   if (subscription.end_date) {
     newEndDate = new Date(subscription.end_date);
   } else {
-    newEndDate = new Date(); // Set to current date if end_date is null
+    newEndDate = new Date(); 
   }
 
-  // Assuming planId corresponds to the duration in months
   const duration = planId === 1 ? 1 : planId === 2 ? 6 : 12;
   newEndDate.setMonth(newEndDate.getMonth() + duration);
 
@@ -223,7 +220,7 @@ function generatePaymentLink(userId, level, duration, amount) {
     InvId: invId,
     Desc: `Подписка Уровень ${level} на ${duration} месяцев`,
     SignatureValue: generateSignature({ MrchLogin: merchantLogin, OutSum: amount, InvId: invId, Desc: `Подписка Уровень ${level} на ${duration} месяцев` }),
-    IsTest: 0,
+    IsTest: 1,
   };
 
   const queryString = Object.keys(params)
@@ -242,7 +239,6 @@ app.post('/api/payment/callback', async (req, res) => {
     return res.status(400).send('Неверная подпись');
   }
 
-  // Обработка успешного платежа
   const [userId, level, duration] = InvId.split('_');
   const { data: subscription, error: fetchError } = await supabase
     .from('subscriptions')
@@ -278,7 +274,6 @@ schedule.scheduleJob('0 0 * * *', async () => {
   const threeDaysFromNow = new Date(today);
   threeDaysFromNow.setDate(today.getDate() + 3);
 
-  // Format dates as ISO strings
   const todayISO = today.toISOString();
   const threeDaysFromNowISO = threeDaysFromNow.toISOString();
 
@@ -303,7 +298,6 @@ schedule.scheduleJob('0 0 * * *', async () => {
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
-  // Проверка и добавление пользователя в базу данных
   const { data: user, error } = await supabase
     .from('usersa')
     .select('*')
@@ -311,7 +305,6 @@ bot.onText(/\/start/, async (msg) => {
     .single();
 
   if (error && error.code === 'PGRST116') {
-    // Пользователь не найден, добавляем его
     await supabase
       .from('usersa')
       .insert([{ telegram_id: chatId, username: msg.chat.username, first_name: msg.chat.first_name, last_name: msg.chat.last_name }]);
@@ -333,7 +326,6 @@ bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
 
-  // Fetch the user_id from the usersa table using the telegram_id
   const { data: user, error } = await supabase
     .from('usersa')
     .select('id')
@@ -365,10 +357,15 @@ bot.on('callback_query', async (query) => {
       bot.sendMessage(chatId, 'У вас нет активной подписки. Подпишитесь на один из тарифов.');
     } else {
       const miniAppUrl = 'https://baguvix-mini-app.vercel.app';
-      bot.sendMessage(chatId, 'Открыnть мини-приложение', {
+      bot.sendMessage(chatId, 'Открыть мини-приложение', {
         reply_markup: {
           inline_keyboard: [
-            [{ text: 'Открыть мини-приложение', url: miniAppUrl }],
+            [
+              {
+                text: 'Открыть мини-приложение',
+                web_app: { url: miniAppUrl }
+              }
+            ],
           ],
         },
       });
@@ -377,10 +374,10 @@ bot.on('callback_query', async (query) => {
     bot.sendMessage(chatId, 'Подписка на Уровень 1 дает доступ к нашему каналу с эксклюзивными материалами и мини-приложению. Выбери срок подписки:', {
       reply_markup: {
         inline_keyboard: [
-          [{ text: `■ Кнопка 1: "1 месяц - [${calculateAmount(1, 1)}] руб"`, callback_data: 'duration_1_1' }],
-          [{ text: `■ Кнопка 2: "3 месяца - [${calculateAmount(1, 3)}] руб"`, callback_data: 'duration_3_1' }],
-          [{ text: `■ Кнопка 3: "6 месяцев - [${calculateAmount(1, 6)}] руб"`, callback_data: 'duration_6_1' }],
-          [{ text: `■ Кнопка 4: "1 год - [${calculateAmount(1, 12)}] руб"`, callback_data: 'duration_12_1' }],
+          [{ text: `1 месяц - [${calculateAmount(1, 1)}] руб`, callback_data: 'duration_1_1' }],
+          [{ text: `3 месяца - [${calculateAmount(1, 3)}] руб`, callback_data: 'duration_3_1' }],
+          [{ text: `6 месяцев - [${calculateAmount(1, 6)}] руб`, callback_data: 'duration_6_1' }],
+          [{ text: `1 год - [${calculateAmount(1, 12)}] руб`, callback_data: 'duration_12_1' }],
         ],
       },
     });
@@ -388,10 +385,10 @@ bot.on('callback_query', async (query) => {
     bot.sendMessage(chatId, 'Подписка на Уровень 2 включает доступ к каналу, мини-приложению и закрытому чату. Выбери срок подписки:', {
       reply_markup: {
         inline_keyboard: [
-          [{ text: `■ Кнопка 1: "1 месяц - [${calculateAmount(2, 1)}] руб"`, callback_data: 'duration_1_2' }],
-          [{ text: `■ Кнопка 2: "3 месяца - [${calculateAmount(2, 3)}] руб"`, callback_data: 'duration_3_2' }],
-          [{ text: `■ Кнопка 3: "6 месяцев - [${calculateAmount(2, 6)}] руб"`, callback_data: 'duration_6_2' }],
-          [{ text: `■ Кнопка 4: "1 год - [${calculateAmount(2, 12)}] руб"`, callback_data: 'duration_12_2' }],
+          [{ text: `1 месяц - [${calculateAmount(2, 1)}] руб`, callback_data: 'duration_1_2' }],
+          [{ text: `3 месяца - [${calculateAmount(2, 3)}] руб`, callback_data: 'duration_3_2' }],
+          [{ text: `6 месяцев - [${calculateAmount(2, 6)}] руб`, callback_data: 'duration_6_2' }],
+          [{ text: `1 год - [${calculateAmount(2, 12)}] руб`, callback_data: 'duration_12_2' }],
         ],
       },
     });
