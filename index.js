@@ -377,10 +377,10 @@ bot.on('callback_query', async (query) => {
     bot.sendMessage(chatId, 'Подписка на Уровень 1 дает доступ к нашему каналу с эксклюзивными материалами и мини-приложению. Выбери срок подписки:', {
       reply_markup: {
         inline_keyboard: [
-          [{ text: `1 месяц - ${calculateAmount(1, 1)} руб`, callback_data: 'duration_1_1' }],
-          [{ text: `3 месяца - ${calculateAmount(1, 3)} руб`, callback_data: 'duration_3_1' }],
-          [{ text: `6 месяцев - ${calculateAmount(1, 6)} руб`, callback_data: 'duration_6_1' }],
-          [{ text: `1 год - ${calculateAmount(1, 12)} руб`, callback_data: 'duration_12_1' }],
+          [{ text: `■ Кнопка 1: "1 месяц - [${calculateAmount(1, 1)}] руб"`, callback_data: 'duration_1_1' }],
+          [{ text: `■ Кнопка 2: "3 месяца - [${calculateAmount(1, 3)}] руб"`, callback_data: 'duration_3_1' }],
+          [{ text: `■ Кнопка 3: "6 месяцев - [${calculateAmount(1, 6)}] руб"`, callback_data: 'duration_6_1' }],
+          [{ text: `■ Кнопка 4: "1 год - [${calculateAmount(1, 12)}] руб"`, callback_data: 'duration_12_1' }],
         ],
       },
     });
@@ -388,10 +388,10 @@ bot.on('callback_query', async (query) => {
     bot.sendMessage(chatId, 'Подписка на Уровень 2 включает доступ к каналу, мини-приложению и закрытому чату. Выбери срок подписки:', {
       reply_markup: {
         inline_keyboard: [
-          [{ text: `1 месяц - ${calculateAmount(2, 1)} руб`, callback_data: 'duration_1_2' }],
-          [{ text: `3 месяца - ${calculateAmount(2, 3)} руб`, callback_data: 'duration_3_2' }],
-          [{ text: `6 месяцев - ${calculateAmount(2, 6)} руб`, callback_data: 'duration_6_2' }],
-          [{ text: `1 год - ${calculateAmount(2, 12)} руб`, callback_data: 'duration_12_2' }],
+          [{ text: `■ Кнопка 1: "1 месяц - [${calculateAmount(2, 1)}] руб"`, callback_data: 'duration_1_2' }],
+          [{ text: `■ Кнопка 2: "3 месяца - [${calculateAmount(2, 3)}] руб"`, callback_data: 'duration_3_2' }],
+          [{ text: `■ Кнопка 3: "6 месяцев - [${calculateAmount(2, 6)}] руб"`, callback_data: 'duration_6_2' }],
+          [{ text: `■ Кнопка 4: "1 год - [${calculateAmount(2, 12)}] руб"`, callback_data: 'duration_12_2' }],
         ],
       },
     });
@@ -415,16 +415,16 @@ app.listen(PORT, () => {
 function calculateAmount(level, duration) {
   const prices = {
     level_1: {
-      '1': 5,
-      '3': 13,
-      '6': 25,
-      '12': 45,
+      '1': 4990,
+      '3': 13390,
+      '6': 25390,
+      '12': 47890,
     },
     level_2: {
-      '1': 10,
-      '3': 27,
-      '6': 50,
-      '12': 90,
+      '1': 9990,
+      '3': 26390,
+      '6': 49390,
+      '12': 94890,
     },
   };
 
