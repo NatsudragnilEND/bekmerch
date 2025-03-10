@@ -537,10 +537,15 @@ bot.on("callback_query", async (query) => {
 
       bot.userData[chatId].messageId = message.message_id;
     } else if (data === "open_app") {
+      const {data: user, error: error2} = await supabase
+      .from("usersa")
+      .select("id")
+      .eq("telegram_id", chatId)
+      .single();
       const { data: subscription, error } = await supabase
         .from("subscriptions")
         .select("*")
-        .eq("user_id", userId)
+        .eq("user_id", user.id)
         .order("end_date", { ascending: false })
         .limit(1)
         .single();
