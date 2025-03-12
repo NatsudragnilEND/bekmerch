@@ -250,7 +250,8 @@ app.post("/api/tinkoff/pay", async (req, res) => {
   }
 });
 
-app.post("/api/tinkoff/webhook", async (req, res) => {
+// Webhook endpoint for Tinkoff Bank notifications
+app.post("/api/tinkoff/notification", async (req, res) => {
   const { Status, OrderId, Success, PaymentId } = req.body;
 
   if (Success === "true" && Status === "CONFIRMED") {
@@ -610,8 +611,6 @@ bot.on("callback_query", async (query) => {
           "customer@example.com"
         );
         const paymentLink = response.PaymentURL;
-        const PaymentId = response.PaymentId;
-        console.log(response);
 
         const message = await bot.sendMessage(
           chatId,
@@ -620,7 +619,6 @@ bot.on("callback_query", async (query) => {
             reply_markup: {
               inline_keyboard: [
                 [{ text: "Оплатить", url: paymentLink }],
-                [{ text: "Проверить оплату", callback_data: `check_payment_${PaymentId}` }],
                 [{ text: "Назад", callback_data: "back_to_main" }],
               ],
             },
@@ -635,49 +633,11 @@ bot.on("callback_query", async (query) => {
         );
         console.log(error);
       }
-    } else if (data.startsWith("check_payment_")) {
-      const paymentId = data.split("_")[2];
-      try {
-        const confirmation = await confirmPayment(paymentId);
-        if (confirmation.success) {
-          const message = await bot.sendMessage(
-            chatId,
-            "Оплата подтверждена! Ваша подписка активирована.",
-            {
-              reply_markup: {
-                inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
-              },
-            }
-          );
-
-          bot.userData[chatId].messageId = message.message_id;
-          // Add logic to update the user's subscription status
-        } else {
-          const message = await bot.sendMessage(
-            chatId,
-            "Оплата не подтверждена. Пожалуйста, попробуйте снова.",
-            {
-              reply_markup: {
-                inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
-              },
-            }
-          );
-
-          bot.userData[chatId].messageId = message.message_id;
-        }
-      } catch (error) {
-        bot.sendMessage(
-          chatId,
-          "Произошла ошибка при проверке оплаты. Пожалуйста, попробуйте позже."
-        );
-      }
     }
   } catch (error) {
     console.error("Ошибка при обработке callback_query:", error);
   }
 });
-
-
 
 // Функция для проверки участников в группе и удаления тех, у кого нет подписки
 async function checkGroupMembers() {
@@ -767,6 +727,7 @@ async function createPaymentLink(amount, currency, description, email) {
     Description: description,
     TerminalKey: tinkoffTerminalKey,
     Password: tinkoffPassword,
+    NotificationURL: `${process.env.BASE_URL}/api/tinkoff/notification`, // Set NotificationURL
   };
 
   // Sort parameters alphabetically by key
@@ -787,10 +748,11 @@ async function createPaymentLink(amount, currency, description, email) {
     Amount: amount * 100, // Amount in kopecks
     OrderId: orderId,
     Description: description,
+    NotificationURL: `https://bekmerch.vercel.app/api/tinkoff/notification`, // Set NotificationURL
     DATA: {
       Email: email,
     },
-    
+
   };
 
   try {
@@ -805,33 +767,7 @@ async function createPaymentLink(amount, currency, description, email) {
     throw error;
   }
 }
-
-async function confirmPayment(paymentId) {
-  const url = `https://securepay.tinkoff.ru/v2/GetState`;
-
-  const payload = {
-    PaymentId: paymentId,
-    Token: crypto
-      .createHash("sha256")
-      .update(tinkoffTerminalKey + paymentId + tinkoffPassword)
-      .digest("hex"),
-  };
-
-  try {
-    const response = await axios.post(url, payload, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-    return {
-      success: response.data.Status === "CONFIRMED",
-      message: response.data.Message,
-    };
-  } catch (error) {
-    console.error("Error confirming payment:", error);
-    throw error;
-  }
-}
+console.log(process.env.BASE_URL);
 
 function calculateAmount(level, duration) {
   const prices = {
