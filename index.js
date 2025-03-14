@@ -250,8 +250,7 @@ app.post("/api/tinkoff/pay", async (req, res) => {
   }
 });
 
-// Webhook endpoint for Tinkoff Bank notifications
-app.post("/api/tinkoff/notification", async (req, res) => {
+app.post("/api/tinkoff/webhook", async (req, res) => {
   const { Status, OrderId, Success, PaymentId } = req.body;
 
   if (Success === "true" && Status === "CONFIRMED") {
@@ -369,277 +368,37 @@ schedule.scheduleJob("0 0 * * *", async () => {
   });
 });
 
-// Telegram-бот
-const prices = {
-  level_1: {
-    1: 1490,
-    3: 3990,
-    6: 7490,
-    12: 14290,
-  },
-  level_2: {
-    1: 4990,
-    3: 13390,
-    6: 25390,
-    12: 47890,
-  },
-};
-
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id;
-
-  const { data: user, error } = await supabase
-    .from("usersa")
+// Автопродление подписки
+async function autoRenewSubscriptions() {
+  const today = new Date();
+  const { data, error } = await supabase
+    .from("subscriptions")
     .select("*")
-    .eq("telegram_id", chatId)
-    .single();
+    .lte("end_date", today.toISOString())
+    .eq("auto_renew", true); // Предполагается, что у вас есть поле auto_renew
 
-  if (error && error.code === "PGRST116") {
-    await supabase.from("usersa").insert([
-      {
-        telegram_id: chatId,
-        username: msg.chat.username,
-        first_name: msg.chat.first_name,
-        last_name: msg.chat.last_name,
-      },
-    ]);
-  }
-
-  // Send the start message
-  try {
-    const message = await bot.sendVideo(chatId, "./video.mp4", {
-      caption: "Добро пожаловать в сообщество радикального саморазвития\n\n" +
-        "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
-        "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
-        "Что ты получишь:\n" +
-        "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
-        "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
-        "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
-        "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
-        "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
-        "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
-        "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
-        "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
-        "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "Уровень 1", callback_data: "level_1" }],
-          [{ text: "Уровень 2", callback_data: "level_2" }],
-          [{ text: 'Сообщество "BAGUVIX"', url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05" }],
-          [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
-          ...(adminTelegramIds.includes(chatId.toString())
-            ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
-            : []),
-        ],
-      },
-    });
-
-    // Store the start message ID
-    bot.userData[chatId] = { messageId: message.message_id };
-  } catch (error) {
-    console.error("Ошибка при отправке видео:", error);
-  }
-});
-
-// Handle callback queries
-bot.on("callback_query", async (query) => {
-  const chatId = query.message.chat.id;
-  const data = query.data;
-  const messageId = bot.userData[chatId]?.messageId;
-
-  if (!messageId) {
-    console.error("Message ID not found for chat ID:", chatId);
+  if (error) {
+    console.error("Ошибка при получении подписок для автопродления", error);
     return;
   }
 
-  try {
-    // Delete the previous message
-    await bot.deleteMessage(chatId, messageId);
+  data.forEach(async (subscription) => {
+    const newEndDate = new Date(subscription.end_date);
+    newEndDate.setMonth(newEndDate.getMonth() + 1); // Продлеваем на 1 месяц
 
-    if (data === "level_1" || data === "level_2") {
-      const level = data.split("_")[1];
-      const message = await bot.sendMessage(
-        chatId,
-        `Выберите срок подписки для Уровня ${level}:`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: `1 месяц - ${prices[`level_${level}`][1]} руб`, callback_data: `duration_1_${level}` }],
-              [{ text: `3 месяца - ${prices[`level_${level}`][3]} руб`, callback_data: `duration_3_${level}` }],
-              [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
-              [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
-              [{ text: "Назад", callback_data: "back_to_main" }],
-            ],
-          },
-        }
-      );
+    await supabase
+      .from("subscriptions")
+      .update({ end_date: newEndDate })
+      .eq("id", subscription.id);
 
-      bot.userData[chatId].messageId = message.message_id;
-    } else if (data.startsWith("duration_")) {
-      const [_, duration, level] = data.split("_");
+    bot.sendMessage(
+      subscription.user_id,
+      `Ваша подписка была автоматически продлена до ${newEndDate.toLocaleDateString()}.`
+    );
+  });
+}
 
-      const message = await bot.sendMessage(
-        chatId,
-        `Подписка на Уровень ${level} на ${duration} месяц(ев).\n\nДля оформления нажмите 'Оплатить'.`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "Оплатить", callback_data: `pay_${level}_${duration}` }],
-              [{ text: "Назад", callback_data: `level_${level}` }],
-            ],
-          },
-        }
-      );
-
-      bot.userData[chatId].messageId = message.message_id;
-    } else if (data === "back_to_main") {
-      const message = await bot.sendVideo(chatId, "./video.mp4", {
-        caption: "Добро пожаловать в сообщество радикального саморазвития\n\n" +
-        "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
-        "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
-        "Что ты получишь:\n" +
-        "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
-        "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
-        "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
-        "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
-        "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
-        "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
-        "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
-        "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
-        "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "Уровень 1", callback_data: "level_1" }],
-            [{ text: "Уровень 2", callback_data: "level_2" }],
-            [{ text: 'Сообщество "BAGUVIX"', url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05" }],
-            [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
-            ...(adminTelegramIds.includes(chatId.toString())
-              ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
-              : []),
-          ],
-        },
-      });
-
-      bot.userData[chatId].messageId = message.message_id;
-    } else if (data === "admin_panel") {
-      const adminUrl = "https://baguvix-mini-app.vercel.app/admin";
-      const message = await bot.sendMessage(
-        chatId,
-        "Открыть админ-панель",
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "Открыть админ-панель", web_app: { url: adminUrl } }],
-              [{ text: "Назад", callback_data: "back_to_main" }],
-            ],
-          },
-        }
-      );
-
-      bot.userData[chatId].messageId = message.message_id;
-    } else if (data === "open_app") {
-      const {data: user, error: error2} = await supabase
-      .from("usersa")
-      .select("id")
-      .eq("telegram_id", chatId)
-      .single();
-      const { data: subscription, error } = await supabase
-        .from("subscriptions")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("end_date", { ascending: false })
-        .limit(1)
-        .single();
-
-      if (
-        error ||
-        !subscription ||
-        new Date(subscription.end_date) < new Date()
-      ) {
-        const message = await bot.sendMessage(
-          chatId,
-          "У вас нет активной подписки. Подпишитесь на один из тарифов.",
-          {
-            reply_markup: {
-              inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
-            },
-          }
-        );
-
-        bot.userData[chatId].messageId = message.message_id;
-      } else {
-        const miniAppUrl = `https://baguvix-mini-app.vercel.app/login?chatId=${chatId}`;
-        const message = await bot.sendMessage(
-          chatId,
-          "Открыть мини-приложение",
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: "Открыть мини-приложение", web_app: { url: miniAppUrl } }],
-                [{ text: "Назад", callback_data: "back_to_main" }],
-              ],
-            },
-          }
-        );
-
-        bot.userData[chatId].messageId = message.message_id;
-      }
-    } else if (data.startsWith("pay_")) {
-      const [_, level, duration] = data.split("_");
-      const amount = calculateAmount(level, duration);
-      const { data: user, error } = await supabase
-        .from("usersa")
-        .select("id")
-        .eq("telegram_id", chatId)
-        .single();
-
-      if (error) {
-        console.error("Ошибка при получении пользователя", error);
-        return bot.sendMessage(
-          chatId,
-          "Произошла ошибка при получении информации о пользователе."
-        );
-      }
-
-      const userId = user.id;
-
-      try {
-        const response = await createPaymentLink(
-          amount,
-          "RUB",
-          `${userId}_${level}_${duration}`,
-          "customer@example.com"
-        );
-        const paymentLink = response.PaymentURL;
-
-        const message = await bot.sendMessage(
-          chatId,
-          `Оплатите подписку по ссылке:`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: "Оплатить", url: paymentLink }],
-                [{ text: "Назад", callback_data: "back_to_main" }],
-              ],
-            },
-          }
-        );
-
-        bot.userData[chatId].messageId = message.message_id;
-      } catch (error) {
-        bot.sendMessage(
-          chatId,
-          "Произошла ошибка при создании платежа. Пожалуйста, попробуйте позже."
-        );
-        console.log(error);
-      }
-    }
-  } catch (error) {
-    console.error("Ошибка при обработке callback_query:", error);
-  }
-});
-
-// Функция для проверки участников в группе и удаления тех, у кого нет подписки
+// Периодическая проверка участников группы
 async function checkGroupMembers() {
   const groupChatId = "-1002451832857"; // Your group ID
 
@@ -704,14 +463,563 @@ async function checkGroupMembers() {
   }
 }
 
+// Запуск сервера
+app.listen(PORT, () => {
+  console.log(`Сервер запущен на порту ${PORT}`);
+});
+
+// Вызов функции автопродления каждый день
+schedule.scheduleJob("0 0 * * *", async () => {
+  await autoRenewSubscriptions();
+});
+
 // Периодическая проверка участников группы
 schedule.scheduleJob("* * * * * *", async () => {
   await checkGroupMembers();
 });
 
-// Запуск сервера
-app.listen(PORT, () => {
-  console.log(`Сервер запущен на порту ${PORT}`);
+// Telegram-бот
+const prices = {
+  level_1: {
+    1: 1490,
+    3: 3990,
+    6: 7490,
+    12: 14290,
+  },
+  level_2: {
+    1: 4990,
+    3: 13390,
+    6: 25390,
+    12: 47890,
+  },
+};
+
+bot.onText(/\/start/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  const { data: user, error } = await supabase
+    .from("usersa")
+    .select("*")
+    .eq("telegram_id", chatId)
+    .single();
+
+  if (error && error.code === "PGRST116") {
+    await supabase.from("usersa").insert([
+      {
+        telegram_id: chatId,
+        username: msg.chat.username,
+        first_name: msg.chat.first_name,
+        last_name: msg.chat.last_name,
+      },
+    ]);
+  }
+
+  // Send the start message
+  try {
+    const message = await bot.sendVideo(chatId, "https://v.mover.uz/hC8FBeYZ_h.mp4", {
+      caption: "Добро пожаловать в сообщество радикального саморазвития\n\n" +
+        "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
+        "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
+        "Что ты получишь:\n" +
+        "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
+        "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
+        "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
+        "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
+        "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
+        "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
+        "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
+        "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
+        "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "Уровень 1", callback_data: "level_1" }],
+          [{ text: "Уровень 2", callback_data: "level_2" }],
+          [{ text: 'Сообщество "BAGUVIX"', url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05" }],
+          [{ text: "Управление подпиской", callback_data: "manage_subscription" }],
+          [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
+          ...(adminTelegramIds.includes(chatId.toString())
+            ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
+            : []),
+        ],
+      },
+    });
+
+    // Store the start message ID
+    bot.userData[chatId] = { messageId: message.message_id };
+  } catch (error) {
+    console.error("Ошибка при отправке видео:", error);
+  }
+});
+
+// Handle callback queries
+bot.on("callback_query", async (query) => {
+  const chatId = query.message.chat.id;
+  const data = query.data;
+  const messageId = bot.userData[chatId]?.messageId;
+
+  if (!messageId) {
+    console.error("Message ID not found for chat ID:", chatId);
+    return;
+  }
+
+  try {
+    // Delete the previous message
+    await bot.deleteMessage(chatId, messageId);
+
+    if (data === "level_1" || data === "level_2") {
+      const level = data.split("_")[1];
+
+      // Fetch the user's subscription status
+      const { data: user, error: userError } = await supabase
+        .from("usersa")
+        .select("id")
+        .eq("telegram_id", chatId)
+        .single();
+
+      if (userError) {
+        console.error("Ошибка при получении пользователя", userError);
+        return bot.sendMessage(
+          chatId,
+          "Произошла ошибка при получении информации о пользователе."
+        );
+      }
+
+      if (user) {
+        const { data: subscription, error: subscriptionError } = await supabase
+          .from("subscriptions")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("end_date", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (subscriptionError && subscriptionError.code === 'PGRST116') {
+          // Handle error if needed
+        }
+
+        // Check if the user has an active subscription
+        if (subscription && new Date(subscription.end_date) >= new Date()) {
+          const expiryDate = new Date(subscription.end_date).toLocaleDateString();
+
+          if (subscription.level === parseInt(level)) {
+            // User already has the selected subscription level
+            const message = await bot.sendMessage(
+              chatId,
+              `У вас уже есть подписка на Уровень ${level}, которая истекает ${expiryDate}.\n\nВыберите срок продления:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+              {
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: `1 месяц - ${prices[`level_${level}`][1]} руб`, callback_data: `extend_1_${level}` }],
+                    [{ text: `3 месяца - ${prices[`level_${level}`][3]} руб`, callback_data: `extend_3_${level}` }],
+                    [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `extend_6_${level}` }],
+                    [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `extend_12_${level}` }],
+                    [{ text: "Назад", callback_data: "back_to_main" }],
+                    [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
+                  ],
+                },
+              }
+            );
+            bot.userData[chatId].messageId = message.message_id;
+          } else if (subscription.level === 2) {
+            // User has the highest subscription level
+            const message = await bot.sendMessage(
+              chatId,
+              `У вас уже есть подписка на Уровень 2, которая включает все уровни и истекает ${expiryDate}.\n\nВыберите срок продления:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+              {
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: `1 месяц - ${prices[`level_2`][1]} руб`, callback_data: `extend_1_2` }],
+                    [{ text: `3 месяца - ${prices[`level_2`][3]} руб`, callback_data: `extend_3_2` }],
+                    [{ text: `6 месяцев - ${prices[`level_2`][6]} руб`, callback_data: `extend_6_2` }],
+                    [{ text: `1 год - ${prices[`level_2`][12]} руб`, callback_data: `extend_12_2` }],
+                    [{ text: "Назад", callback_data: "back_to_main" }],
+                    [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
+                  ],
+                },
+              }
+            );
+            bot.userData[chatId].messageId = message.message_id;
+          } else {
+            // User has a lower subscription level, allow upgrade
+            const message = await bot.sendMessage(
+              chatId,
+              `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+              {
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: `1 месяц - ${prices[`level_${level}`][1]} руб`, callback_data: `duration_1_${level}` }],
+                    [{ text: `3 месяца - ${prices[`level_${level}`][3]} руб`, callback_data: `duration_3_${level}` }],
+                    [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
+                    [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
+                    [{ text: "Назад", callback_data: "back_to_main" }],
+                    [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
+                  ],
+                },
+              }
+            );
+            bot.userData[chatId].messageId = message.message_id;
+          }
+        } else {
+          // User does not have an active subscription, allow subscription
+          const message = await bot.sendMessage(
+            chatId,
+            `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: `1 месяц - ${prices[`level_${level}`][1]} руб`, callback_data: `duration_1_${level}` }],
+                  [{ text: `3 месяца - ${prices[`level_${level}`][3]} руб`, callback_data: `duration_3_${level}` }],
+                  [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
+                  [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
+                  [{ text: "Назад", callback_data: "back_to_main" }],
+                  [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
+                ],
+              },
+            }
+          );
+          bot.userData[chatId].messageId = message.message_id;
+        }
+      } else {
+        // User is new and not in the database
+        const message = await bot.sendMessage(
+          chatId,
+          `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `1 месяц - ${prices[`level_${level}`][1]} руб`, callback_data: `duration_1_${level}` }],
+                [{ text: `3 месяца - ${prices[`level_${level}`][3]} руб`, callback_data: `duration_3_${level}` }],
+                [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
+                [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
+                [{ text: "Назад", callback_data: "back_to_main" }],
+                [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
+              ],
+            },
+          }
+        );
+        bot.userData[chatId].messageId = message.message_id;
+      }
+    } else if (data.startsWith("extend_")) {
+      const [_, duration, level] = data.split("_");
+
+      const message = await bot.sendMessage(
+        chatId,
+        `Продление подписки на Уровень ${level} на ${duration} месяц(ев).\n\nДля оформления нажмите 'Оплатить'.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Оплатить", callback_data: `pay_${level}_${duration}` }],
+              [{ text: "Назад", callback_data: `level_${level}` }],
+            ],
+          },
+        }
+      );
+
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data.startsWith("duration_")) {
+      const [_, duration, level] = data.split("_");
+
+      const message = await bot.sendMessage(
+        chatId,
+        `Подписка на Уровень ${level} на ${duration} месяц(ев).\n\nДля оформления нажмите 'Оплатить'.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Оплатить", callback_data: `pay_${level}_${duration}` }],
+              [{ text: "Назад", callback_data: `level_${level}` }],
+            ],
+          },
+        }
+      );
+
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data === "back_to_main") {
+      const message = await bot.sendVideo(chatId, "https://v.mover.uz/hC8FBeYZ_h.mp4", {
+        caption: "Добро пожаловать в сообщество радикального саморазвития\n\n" +
+        "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
+        "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
+        "Что ты получишь:\n" +
+        "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
+        "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
+        "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
+        "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
+        "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
+        "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
+        "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
+        "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
+        "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "Уровень 1", callback_data: "level_1" }],
+            [{ text: "Уровень 2", callback_data: "level_2" }],
+            [{ text: 'Сообщество "BAGUVIX"', url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05" }],
+            [{ text: "Управление подпиской", callback_data: "manage_subscription" }],
+            [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
+            ...(adminTelegramIds.includes(chatId.toString())
+              ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
+              : []),
+          ],
+        },
+      });
+
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data === "admin_panel") {
+      const adminUrl = "https://baguvix-mini-app.vercel.app/admin";
+      const message = await bot.sendMessage(
+        chatId,
+        "Открыть админ-панель",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Открыть админ-панель", web_app: { url: adminUrl } }],
+              [{ text: "Назад", callback_data: "back_to_main" }],
+            ],
+          },
+        }
+      );
+
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data === "open_app") {
+      const { data: user, error: error2 } = await supabase
+        .from("usersa")
+        .select("id")
+        .eq("telegram_id", chatId)
+        .single();
+      const { data: subscription, error } = await supabase
+        .from("subscriptions")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("end_date", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (
+        error ||
+        !subscription ||
+        new Date(subscription.end_date) < new Date()
+      ) {
+        const message = await bot.sendMessage(
+          chatId,
+          "У вас нет активной подписки. Подпишитесь на один из тарифов.",
+          {
+            reply_markup: {
+              inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
+            },
+          }
+        );
+
+        bot.userData[chatId].messageId = message.message_id;
+      } else {
+        const miniAppUrl = `https://baguvix-mini-app.vercel.app/login?chatId=${chatId}`;
+        const message = await bot.sendMessage(
+          chatId,
+          "Открыть мини-приложение",
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "Открыть мини-приложение", web_app: { url: miniAppUrl } }],
+                [{ text: "Назад", callback_data: "back_to_main" }],
+              ],
+            },
+          }
+        );
+
+        bot.userData[chatId].messageId = message.message_id;
+      }
+    } else if (data === "manage_subscription") {
+      const { data: user, error: userError } = await supabase
+        .from("usersa")
+        .select("id")
+        .eq("telegram_id", chatId)
+        .single();
+
+      if (userError) {
+        console.error("Ошибка при получении пользователя", userError);
+        return bot.sendMessage(
+          chatId,
+          "Произошла ошибка при получении информации о пользователе."
+        );
+      }
+
+      const { data: subscription, error: subscriptionError } = await supabase
+        .from("subscriptions")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("end_date", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (subscriptionError) {
+        console.error("Ошибка при получении подписки", subscriptionError);
+        return bot.sendMessage(
+          chatId,
+          "Произошла ошибка при получении информации о подписке."
+        );
+      }
+
+      if (subscription && new Date(subscription.end_date) >= new Date()) {
+        const expiryDate = new Date(subscription.end_date).toLocaleDateString();
+        const nextChargeDate = new Date(subscription.end_date);
+        nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
+        const nextChargeDateStr = nextChargeDate.toLocaleDateString();
+      
+        const message = await bot.sendMessage(
+          chatId,
+          `Здесь ты можешь управлять своей подпиской.\n\nТвоя подписка: Уровень ${subscription.level}, действует до ${expiryDate}.\nСледующее списание: ${nextChargeDateStr}, сумма: ${prices[`level_${subscription.level}`][1]} руб.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "Отменить автопродление", callback_data: "cancel_auto_renew" }],
+                [{ text: "Назад", callback_data: "back_to_main" }], // Added "Назад" button
+              ],
+            },
+          }
+        );
+      
+        bot.userData[chatId].messageId = message.message_id;
+      } else {
+        const message = await bot.sendMessage(
+          chatId,
+          "У тебя сейчас нет активной подписки.",
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "Уровень 1", callback_data: "level_1" }],
+                [{ text: "Уровень 2", callback_data: "level_2" }],
+                [{ text: "Назад", callback_data: "back_to_main" }], // Added "Назад" button
+              ],
+            },
+          }
+        );
+      
+        bot.userData[chatId].messageId = message.message_id;
+      }
+      
+    } else if (data === "cancel_auto_renew") {
+      const { data: user, error: userError } = await supabase
+        .from("usersa")
+        .select("id")
+        .eq("telegram_id", chatId)
+        .single();
+
+      if (userError) {
+        console.error("Ошибка при получении пользователя", userError);
+        return bot.sendMessage(
+          chatId,
+          "Произошла ошибка при получении информации о пользователе."
+        );
+      }
+
+      const { error: updateError } = await supabase
+        .from("subscriptions")
+        .update({ auto_renew: false })
+        .eq("user_id", user.id);
+
+      if (updateError) {
+        console.error("Ошибка при отмене автопродления", updateError);
+        return bot.sendMessage(
+          chatId,
+          "Произошла ошибка при отмене автопродления."
+        );
+      }
+
+      const message = await bot.sendMessage(
+        chatId,
+        "Автопродление подписки отменено.",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Назад", callback_data: "manage_subscription" }],
+            ],
+          },
+        }
+      );
+
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data.startsWith("pay_")) {
+      const [_, level, duration] = data.split("_");
+      const amount = calculateAmount(level, duration);
+      const { data: user, error } = await supabase
+        .from("usersa")
+        .select("id")
+        .eq("telegram_id", chatId)
+        .single();
+
+      if (error) {
+        console.error("Ошибка при получении пользователя", error);
+        return bot.sendMessage(
+          chatId,
+          "Произошла ошибка при получении информации о пользователе."
+        );
+      }
+
+      const userId = user.id;
+
+      try {
+        const response = await createPaymentLink(
+          amount,
+          "RUB",
+          `${userId}_${level}_${duration}`,
+          "customer@example.com"
+        );
+        const paymentLink = response.PaymentURL;
+        const paymentId = response.PaymentId;
+        console.log(response);
+
+        const message = await bot.sendMessage(
+          chatId,
+          `Оплатите подписку по ссылке:`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "Оплатить", url: paymentLink }],
+                [{ text: "Назад", callback_data: "back_to_main" }],
+              ],
+            },
+          }
+        );
+
+        bot.userData[chatId].messageId = message.message_id;
+
+        // Check payment status every second
+        const checkPaymentInterval = setInterval(async () => {
+          try {
+            const confirmation = await confirmPayment(paymentId);
+            if (confirmation.success) {
+              clearInterval(checkPaymentInterval);
+              const message = await bot.sendMessage(
+                chatId,
+                "Оплата подтверждена! Ваша подписка активирована.",
+                {
+                  reply_markup: {
+                    inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
+                  },
+                }
+              );
+
+              bot.userData[chatId].messageId = message.message_id;
+              // Add logic to update the user's subscription status
+            }
+          } catch (error) {
+            clearInterval(checkPaymentInterval);
+            bot.sendMessage(
+              chatId,
+              "Произошла ошибка при проверке оплаты. Пожалуйста, попробуйте позже."
+            );
+          }
+        }, 1000);
+
+      } catch (error) {
+        bot.sendMessage(
+          chatId,
+          "Произошла ошибка при создании платежа. Пожалуйста, попробуйте позже."
+        );
+        console.log(error);
+      }
+    }
+  } catch (error) {
+    console.error("Ошибка при обработке callback_query:", error);
+  }
 });
 
 async function createPaymentLink(amount, currency, description, email) {
@@ -720,6 +1028,22 @@ async function createPaymentLink(amount, currency, description, email) {
   // Generate a unique order ID
   const orderId = crypto.randomBytes(16).toString("hex");
 
+  // Receipt details
+  const receipt = {
+    Email: email,
+    Phone: "+79990000000", // You can add a phone number if available
+    Taxation: "osn", // Taxation system, e.g., "osn" for general taxation system
+    Items: [
+      {
+        Name: "Subscription",
+        Price: amount * 100, // Amount in kopecks
+        Quantity: 1.00,
+        Amount: amount * 100, // Amount in kopecks
+        Tax: "none", // Tax type, e.g., "vat0" for 0% VAT
+      },
+    ],
+  };
+
   // Collect parameters for token generation
   const params = {
     Amount: amount * 100, // Amount in kopecks
@@ -727,7 +1051,6 @@ async function createPaymentLink(amount, currency, description, email) {
     Description: description,
     TerminalKey: tinkoffTerminalKey,
     Password: tinkoffPassword,
-    NotificationURL: `${process.env.BASE_URL}/api/tinkoff/notification`, // Set NotificationURL
   };
 
   // Sort parameters alphabetically by key
@@ -742,17 +1065,17 @@ async function createPaymentLink(amount, currency, description, email) {
     .update(concatenatedValues)
     .digest("hex");
   console.log(token);
+
   const payload = {
     TerminalKey: tinkoffTerminalKey,
     Token: token,
     Amount: amount * 100, // Amount in kopecks
     OrderId: orderId,
     Description: description,
-    NotificationURL: `https://bekmerch.vercel.app/api/tinkoff/notification`, // Set NotificationURL
     DATA: {
       Email: email,
     },
-
+    Receipt: receipt, // Include the receipt object directly
   };
 
   try {
@@ -767,7 +1090,33 @@ async function createPaymentLink(amount, currency, description, email) {
     throw error;
   }
 }
-console.log(process.env.BASE_URL);
+
+async function confirmPayment(paymentId) {
+  const url = `https://securepay.tinkoff.ru/v2/GetState`;
+
+  const payload = {
+    PaymentId: paymentId,
+    Token: crypto
+      .createHash("sha256")
+      .update(tinkoffTerminalKey + paymentId + tinkoffPassword)
+      .digest("hex"),
+  };
+
+  try {
+    const response = await axios.post(url, payload, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+    return {
+      success: response.data.Status === "CONFIRMED",
+      message: response.data.Message,
+    };
+  } catch (error) {
+    console.error("Error confirming payment:", error);
+    throw error;
+  }
+}
 
 function calculateAmount(level, duration) {
   const prices = {
