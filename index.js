@@ -544,7 +544,6 @@ bot.onText(/\/start/, async (msg) => {
       },
     });
 
-    // Store the start message ID
     bot.userData[chatId] = { messageId: message.message_id };
   } catch (error) {
     console.error("Ошибка при отправке видео:", error);
@@ -563,10 +562,27 @@ bot.on("callback_query", async (query) => {
   }
 
   try {
-    // Delete the previous message
     await bot.deleteMessage(chatId, messageId);
 
     if (data === "level_1" || data === "level_2") {
+      const level = data.split("_")[1];
+
+      // Show the agreement message
+      const message = await bot.sendMessage(
+        chatId,
+        "Пожалуйста, ознакомьтесь с условиями подписки: [Соглашение с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14).\n\nВы согласны с условиями?",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Согласен", callback_data: `agree_${level}` }],
+              [{ text: "Не согласен", callback_data: "disagree" }],
+            ],
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+
+    } else if (data.startsWith("agree_")) {
       const level = data.split("_")[1];
 
       // Fetch the user's subscription status
@@ -614,7 +630,6 @@ bot.on("callback_query", async (query) => {
                     [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `extend_6_${level}` }],
                     [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `extend_12_${level}` }],
                     [{ text: "Назад", callback_data: "back_to_main" }],
-                    [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
                   ],
                 },
               }
@@ -633,7 +648,6 @@ bot.on("callback_query", async (query) => {
                     [{ text: `6 месяцев - ${prices[`level_2`][6]} руб`, callback_data: `extend_6_2` }],
                     [{ text: `1 год - ${prices[`level_2`][12]} руб`, callback_data: `extend_12_2` }],
                     [{ text: "Назад", callback_data: "back_to_main" }],
-                    [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
                   ],
                 },
               }
@@ -652,7 +666,6 @@ bot.on("callback_query", async (query) => {
                     [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
                     [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
                     [{ text: "Назад", callback_data: "back_to_main" }],
-                    [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
                   ],
                 },
               }
@@ -672,7 +685,6 @@ bot.on("callback_query", async (query) => {
                   [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
                   [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
                   [{ text: "Назад", callback_data: "back_to_main" }],
-                  [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
                 ],
               },
             }
@@ -692,13 +704,42 @@ bot.on("callback_query", async (query) => {
                 [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
                 [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
                 [{ text: "Назад", callback_data: "back_to_main" }],
-                [{ text: "Соглашение с подпиской", url: "https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14" }],
               ],
             },
           }
         );
         bot.userData[chatId].messageId = message.message_id;
       }
+    } else if (data === "disagree") {
+      // Return to the main menu
+      const message = await bot.sendVideo(chatId, "https://v.mover.uz/hC8FBeYZ_h.mp4", {
+        caption: "Добро пожаловать в сообщество радикального саморазвития\n\n" +
+          "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
+          "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
+          "Что ты получишь:\n" +
+          "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
+          "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
+          "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
+          "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
+          "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
+          "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
+          "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
+          "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
+          "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "Уровень 1", callback_data: "level_1" }],
+            [{ text: "Уровень 2", callback_data: "level_2" }],
+            [{ text: 'Сообщество "BAGUVIX"', url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05" }],
+            [{ text: "Управление подпиской", callback_data: "manage_subscription" }],
+            [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
+            ...(adminTelegramIds.includes(chatId.toString())
+              ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
+              : []),
+          ],
+        },
+      });
+      bot.userData[chatId].messageId = message.message_id;
     } else if (data.startsWith("extend_")) {
       const [_, duration, level] = data.split("_");
 
@@ -736,18 +777,18 @@ bot.on("callback_query", async (query) => {
     } else if (data === "back_to_main") {
       const message = await bot.sendVideo(chatId, "https://v.mover.uz/hC8FBeYZ_h.mp4", {
         caption: "Добро пожаловать в сообщество радикального саморазвития\n\n" +
-        "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
-        "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
-        "Что ты получишь:\n" +
-        "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
-        "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
-        "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
-        "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
-        "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
-        "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
-        "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
-        "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
-        "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
+          "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
+          "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
+          "Что ты получишь:\n" +
+          "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
+          "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
+          "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
+          "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
+          "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
+          "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
+          "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
+          "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
+          "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
         reply_markup: {
           inline_keyboard: [
             [{ text: "Уровень 1", callback_data: "level_1" }],
@@ -862,7 +903,7 @@ bot.on("callback_query", async (query) => {
         const nextChargeDate = new Date(subscription.end_date);
         nextChargeDate.setMonth(nextChargeDate.getMonth() + 1);
         const nextChargeDateStr = nextChargeDate.toLocaleDateString();
-      
+
         const message = await bot.sendMessage(
           chatId,
           `Здесь ты можешь управлять своей подпиской.\n\nТвоя подписка: Уровень ${subscription.level}, действует до ${expiryDate}.\nСледующее списание: ${nextChargeDateStr}, сумма: ${prices[`level_${subscription.level}`][1]} руб.`,
@@ -875,7 +916,7 @@ bot.on("callback_query", async (query) => {
             },
           }
         );
-      
+
         bot.userData[chatId].messageId = message.message_id;
       } else {
         const message = await bot.sendMessage(
@@ -891,10 +932,10 @@ bot.on("callback_query", async (query) => {
             },
           }
         );
-      
+
         bot.userData[chatId].messageId = message.message_id;
       }
-      
+
     } else if (data === "cancel_auto_renew") {
       const { data: user, error: userError } = await supabase
         .from("usersa")
@@ -1136,3 +1177,4 @@ function calculateAmount(level, duration) {
 
   return prices[`level_${level}`][duration];
 }
+
