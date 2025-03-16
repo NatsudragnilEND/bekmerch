@@ -452,10 +452,9 @@ async function initiateAutoRenewalPayment(userId, level, duration) {
 
 // Периодическая проверка участников группы
 async function checkGroupMembers() {
-  const groupChatId = "-1002451832857"; // Your group ID
+  const groupChatId = "-1002451832857"; 
 
   try {
-    // Fetch all registered users from the database
     const { data: members, error: membersError } = await supabase
       .from("usersa")
       .select("id, telegram_id");
@@ -482,7 +481,7 @@ async function checkGroupMembers() {
 
         // Remove users who are not in the database
         if (!dbUserIds.has(member.telegram_id)) {
-          await bot.banChatMember(groupChatId, member.telegram_id);
+          await bot.banChatMember(groupChatId, member.telegram_id, Math.floor(Date.now() / 1000) + 1);
           continue;
         }
 
@@ -500,7 +499,9 @@ async function checkGroupMembers() {
           !subscription ||
           new Date(subscription.end_date) < new Date()
         ) {
-          await bot.banChatMember(groupChatId, member.telegram_id);
+          await bot.banChatMember(groupChatId, member.telegram_id, {
+            until_date: Math.floor(Date.now() / 1000) + 1, // Kick for a short duration
+          });
         } else {
         }
       } catch (error) {
@@ -601,7 +602,22 @@ bot.onText(/\/start/, async (msg) => {
     console.error("Ошибка при отправке видео:", error);
   }
 });
-
+const sendlinks = async () => {
+  const expireDate = Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60);
+  const channelLink = await bot.createChatInviteLink(-1002306021477, {
+    name: "Channel_Invite",
+    expire_date: expireDate
+  });
+  const chatLink = await bot.createChatInviteLink(-1002451832857, {
+    name: "Chat_Invite",
+    expire_date: expireDate
+  });
+  bot.sendMessage(
+    5793122261,
+    `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
+  );
+}
+sendlinks()
 // Handle callback queries
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
@@ -1083,26 +1099,26 @@ bot.on("callback_query", async (query) => {
         const checkPaymentInterval = setInterval(async () => {
           try {
             const confirmation = await confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword);
-            
+        
             if (confirmation.success) {
               clearInterval(checkPaymentInterval);
-            
+        
               // Send the chat and channel links after confirming the payment
               if (level === "1") {
-                const channelLink = await bot.createChatInviteLink(-1002451832857);
+                const channelLink = await bot.createChatInviteLink(-1002306021477);
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}`
                 );
               } else if (level === "2") {
-                const channelLink = await bot.createChatInviteLink(-1002451832857);
+                const channelLink = await bot.createChatInviteLink(-1002306021477);
                 const chatLink = await bot.createChatInviteLink(-1002451832857);
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
                 );
               }
-            
+        
               const message = await bot.sendMessage(
                 chatId,
                 "Оплата подтверждена! Ваша подписка активирована.",
@@ -1112,11 +1128,11 @@ bot.on("callback_query", async (query) => {
                   },
                 }
               );
-            
+        
               bot.userData[chatId].messageId = message.message_id;
               // Add logic to update the user's subscription status
             }
-            
+        
           } catch (error) {
             clearInterval(checkPaymentInterval);
             bot.sendMessage(
@@ -1125,6 +1141,8 @@ bot.on("callback_query", async (query) => {
             );
           }
         }, 1000);
+        
+        
 
       } catch (error) {
         bot.sendMessage(
