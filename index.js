@@ -1086,29 +1086,23 @@ bot.on("callback_query", async (query) => {
             
             if (confirmation.success) {
               clearInterval(checkPaymentInterval);
-
+            
               // Send the chat and channel links after confirming the payment
               if (level === "1") {
-                const channelLink = await bot.createChatInviteLink(-1002451832857, {
-                  expire_date: Math.floor(Date.now() / 1000) + 3600,
-                });
+                const channelLink = await bot.createChatInviteLink(-1002451832857);
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}`
                 );
               } else if (level === "2") {
-                const channelLink = await bot.createChatInviteLink(-1002451832857, {
-                  expire_date: Math.floor(Date.now() / 1000) + 3600,
-                });
-                const chatLink = await bot.createChatInviteLink(-1002451832857, {
-                  expire_date: Math.floor(Date.now() / 1000) + 3600,
-                });
+                const channelLink = await bot.createChatInviteLink(-1002451832857);
+                const chatLink = await bot.createChatInviteLink(-1002451832857);
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
                 );
               }
-
+            
               const message = await bot.sendMessage(
                 chatId,
                 "Оплата подтверждена! Ваша подписка активирована.",
@@ -1118,10 +1112,11 @@ bot.on("callback_query", async (query) => {
                   },
                 }
               );
-
+            
               bot.userData[chatId].messageId = message.message_id;
               // Add logic to update the user's subscription status
             }
+            
           } catch (error) {
             clearInterval(checkPaymentInterval);
             bot.sendMessage(
