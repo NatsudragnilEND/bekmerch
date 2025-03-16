@@ -234,14 +234,17 @@ const tinkoffTerminalKey = process.env.TINKOFF_TERMINAL_KEY;
 const tinkoffPassword = process.env.TINKOFF_PASSWORD;
 
 app.post("/api/tinkoff/pay", async (req, res) => {
-  const { amount, currency, description, email } = req.body;
+  const { amount, currency, description, email, userId, level, duration } = req.body;
 
   try {
     const paymentData = await createPaymentLink(
       amount,
       currency,
       description,
-      email
+      email,
+      userId,
+      level,
+      duration
     );
     const paymentLink = paymentData.PaymentURL;
     res.json(paymentData);
@@ -375,27 +378,92 @@ async function autoRenewSubscriptions() {
     .from("subscriptions")
     .select("*")
     .lte("end_date", today.toISOString())
-    .eq("auto_renew", true); // Предполагается, что у вас есть поле auto_renew
+    .eq("auto_renew", true); // Assuming you have an auto_renew field
 
   if (error) {
     console.error("Ошибка при получении подписок для автопродления", error);
     return;
   }
 
-  data.forEach(async (subscription) => {
+  for (const subscription of data) {
     const newEndDate = new Date(subscription.end_date);
-    newEndDate.setMonth(newEndDate.getMonth() + 1); // Продлеваем на 1 месяц
+    newEndDate.setMonth(newEndDate.getMonth() + 1); // Extend by 1 month
 
-    await supabase
-      .from("subscriptions")
-      .update({ end_date: newEndDate })
-      .eq("id", subscription.id);
+    try {
+      await initiateAutoRenewalPayment(subscription.user_id, subscription.level, 1);
+      await supabase
+        .from("subscriptions")
+        .update({ end_date: newEndDate })
+        .eq("id", subscription.id);
 
-    bot.sendMessage(
-      subscription.user_id,
-      `Ваша подписка была автоматически продлена до ${newEndDate.toLocaleDateString()}.`
+      bot.sendMessage(
+        subscription.user_id,
+        `Ваша подписка была автоматически продлена до ${newEndDate.toLocaleDateString()}.`
+      );
+    } catch (paymentError) {
+      console.error('Ошибка при автопродлении подписки:', paymentError);
+      bot.sendMessage(
+        subscription.user_id,
+        'Произошла ошибка при автопродлении подписки. Пожалуйста, свяжитесь с поддержкой.'
+      );
+    }
+  }
+}
+
+async function initiateAutoRenewalPayment(userId, level, duration) {
+  const amount = calculateAmount(level, duration);
+
+  // Retrieve stored values from the database
+  const { data: subscription, error } = await supabase
+    .from("subscriptions")
+    .select("agreement_number, document_number, execution_order")
+    .eq("user_id", userId)
+    .eq("level", level)
+    .single();
+
+  if (error) {
+    console.error("Error retrieving subscription details:", error);
+    throw error;
+  }
+
+  const { agreement_number, document_number, execution_order } = subscription;
+
+  const accountNumber = '40802810600007943932';
+  const purpose = `Оплата подписки на Уровень ${level} на ${duration} месяц(ев)`;
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + 30); // Set due date to 30 days from now
+
+  const payload = {
+    id: `${userId}_${level}_${duration}_${new Date().getTime()}`,
+    from: {
+      accountNumber: accountNumber,
+    },
+    to: {
+      agreementNumber: agreement_number,
+    },
+    purpose: purpose,
+    documentNumber: document_number,
+    amount: amount,
+    executionOrder: execution_order,
+    dueDate: dueDate.toISOString(),
+  };
+
+  try {
+    const response = await axios.post(
+      'https://secured-openapi.tbank.ru/api/v1/payment/card-transfer/pay',
+      payload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer YOUR_API_TOKEN`, // Replace with your API token
+        },
+      }
     );
-  });
+    return response.data;
+  } catch (error) {
+    console.error('Error initiating auto-renewal payment:', error);
+    throw error;
+  }
 }
 
 // Периодическая проверка участников группы
@@ -1006,7 +1074,10 @@ bot.on("callback_query", async (query) => {
           amount,
           "RUB",
           `${userId}_${level}_${duration}`,
-          "customer@example.com"
+          "customer@example.com",
+          userId,
+          level,
+          duration
         );
         const paymentLink = response.PaymentURL;
         const paymentId = response.PaymentId;
@@ -1068,11 +1139,16 @@ bot.on("callback_query", async (query) => {
   }
 });
 
-async function createPaymentLink(amount, currency, description, email) {
+async function createPaymentLink(amount, currency, description, email, userId, level, duration) {
   const url = "https://securepay.tinkoff.ru/v2/Init";
 
   // Generate a unique order ID
   const orderId = crypto.randomBytes(16).toString("hex");
+
+  // Generate unique agreementNumber and documentNumber
+  const agreementNumber = `AGR-${userId}-${level}-${duration}`;
+  const documentNumber = Math.floor(100000 + Math.random() * 900000); // Random 6-digit number
+  const executionOrder = 5; // Default execution order
 
   // Receipt details
   const receipt = {
@@ -1110,7 +1186,6 @@ async function createPaymentLink(amount, currency, description, email) {
     .createHash("sha256")
     .update(concatenatedValues)
     .digest("hex");
-  console.log(token);
 
   const payload = {
     TerminalKey: tinkoffTerminalKey,
@@ -1130,6 +1205,18 @@ async function createPaymentLink(amount, currency, description, email) {
         "Content-Type": "application/json",
       },
     });
+
+    // Store the generated values in the database
+    await supabase
+      .from("subscriptions")
+      .update({
+        agreement_number: agreementNumber,
+        document_number: documentNumber,
+        execution_order: executionOrder,
+      })
+      .eq("user_id", userId)
+      .eq("level", level);
+
     return response.data;
   } catch (error) {
     console.error("Error creating payment link:", error);
@@ -1182,4 +1269,3 @@ function calculateAmount(level, duration) {
 
   return prices[`level_${level}`][duration];
 }
-
