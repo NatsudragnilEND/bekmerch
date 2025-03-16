@@ -147,18 +147,14 @@ app.delete("/api/admin/delete-material/:id", async (req, res) => {
 app.post("/api/subscription/subscribe", async (req, res) => {
   const { userId, level, duration } = req.body;
 
-  const { data, error } = await supabase
-    .from("subscriptions")
-    .insert([
-      {
-        user_id: userId,
-        level,
-        start_date: new Date(),
-        end_date: new Date(
-          new Date().setMonth(new Date().getMonth() + duration)
-        ),
-      },
-    ]);
+  const { data, error } = await supabase.from("subscriptions").insert([
+    {
+      user_id: userId,
+      level,
+      start_date: new Date(),
+      end_date: new Date(new Date().setMonth(new Date().getMonth() + duration)),
+    },
+  ]);
 
   if (error) {
     console.log(error);
@@ -234,7 +230,8 @@ const tinkoffTerminalKey = process.env.TINKOFF_TERMINAL_KEY;
 const tinkoffPassword = process.env.TINKOFF_PASSWORD;
 
 app.post("/api/tinkoff/pay", async (req, res) => {
-  const { amount, currency, description, email, userId, level, duration } = req.body;
+  const { amount, currency, description, email, userId, level, duration } =
+    req.body;
 
   try {
     const { paymentLink, paymentId } = await createPaymentLink(
@@ -252,7 +249,15 @@ app.post("/api/tinkoff/pay", async (req, res) => {
   }
 });
 
-async function createPaymentLink(amount, currency, description, email, userId, level, duration) {
+async function createPaymentLink(
+  amount,
+  currency,
+  description,
+  email,
+  userId,
+  level,
+  duration
+) {
   const url = "https://securepay.tinkoff.ru/v2/Init";
 
   // Generate a unique order ID
@@ -272,7 +277,7 @@ async function createPaymentLink(amount, currency, description, email, userId, l
       {
         Name: "Subscription",
         Price: amount * 100, // Amount in kopecks
-        Quantity: 1.00,
+        Quantity: 1.0,
         Amount: amount * 100, // Amount in kopecks
         Tax: "none", // Tax type, e.g., "vat0" for 0% VAT
       },
@@ -393,7 +398,11 @@ async function autoRenewSubscriptions() {
     newEndDate.setMonth(newEndDate.getMonth() + 1); // Extend by 1 month
 
     try {
-      await initiateAutoRenewalPayment(subscription.user_id, subscription.level, 1);
+      await initiateAutoRenewalPayment(
+        subscription.user_id,
+        subscription.level,
+        1
+      );
       await supabase
         .from("subscriptions")
         .update({ end_date: newEndDate })
@@ -404,10 +413,10 @@ async function autoRenewSubscriptions() {
         `Ваша подписка была автоматически продлена до ${newEndDate.toLocaleDateString()}.`
       );
     } catch (paymentError) {
-      console.error('Ошибка при автопродлении подписки:', paymentError);
+      console.error("Ошибка при автопродлении подписки:", paymentError);
       bot.sendMessage(
         subscription.user_id,
-        'Произошла ошибка при автопродлении подписки. Пожалуйста, свяжитесь с поддержкой.'
+        "Произошла ошибка при автопродлении подписки. Пожалуйста, свяжитесь с поддержкой."
       );
     }
   }
@@ -435,24 +444,24 @@ async function initiateAutoRenewalPayment(userId, level, duration) {
 
   try {
     const response = await axios.post(
-      'https://securepay.tinkoff.ru/v2/Charge',
+      "https://securepay.tinkoff.ru/v2/Charge",
       payload,
       {
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       }
     );
     return response.data;
   } catch (error) {
-    console.error('Error charging recurrent payment:', error);
+    console.error("Error charging recurrent payment:", error);
     throw error;
   }
 }
 
 // Периодическая проверка участников группы
 async function checkGroupMembers() {
-  const groupChatId = "-1002451832857";
+  const groupChatId = -1002451832857;
 
   try {
     const { data: members, error: membersError } = await supabase
@@ -481,7 +490,11 @@ async function checkGroupMembers() {
 
         // Remove users who are not in the database
         if (!dbUserIds.has(member.telegram_id)) {
-          await bot.banChatMember(groupChatId, member.telegram_id, Math.floor(Date.now() / 1000) + 1);
+          await bot.banChatMember(
+            groupChatId,
+            member.telegram_id,
+            Math.floor(Date.now() / 1000) + 1
+          );
           continue;
         }
 
@@ -499,9 +512,10 @@ async function checkGroupMembers() {
           !subscription ||
           new Date(subscription.end_date) < new Date()
         ) {
-          await bot.banChatMember(groupChatId, member.telegram_id, {
-            until_date: Math.floor(Date.now() / 1000) + 1, // Kick for a short duration
-          });
+          await bot.banChatMember(groupChatId, member.telegram_id);
+          setTimeout(async () => {
+            await bot.unbanChatMember(groupChatId, member.telegram_id);
+          }, 1000);
         } else {
         }
       } catch (error) {
@@ -550,13 +564,15 @@ const prices = {
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
-  const { data: user, error } = await supabase
+  // Fetch user data from the database
+  const { data: user, error: userError } = await supabase
     .from("usersa")
-    .select("*")
+    .select("id")
     .eq("telegram_id", chatId)
     .single();
 
-  if (error && error.code === "PGRST116") {
+  if (userError && userError.code === "PGRST116") {
+    // User not found, insert new user
     await supabase.from("usersa").insert([
       {
         telegram_id: chatId,
@@ -567,33 +583,100 @@ bot.onText(/\/start/, async (msg) => {
     ]);
   }
 
+  // Fetch the user's subscription status
+  const { data: subscription, error: subscriptionError } = await supabase
+    .from("subscriptions")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("end_date", { ascending: false })
+    .limit(1)
+    .single();
+
+  let messageText =
+    "Добро пожаловать в сообщество радикального саморазвития\n\n" +
+    "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
+    "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
+    "Что ты получишь:\n" +
+    "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
+    "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
+    "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
+    "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
+    "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
+    "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
+    "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
+    "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
+    "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.";
+
+  let inlineKeyboard = [
+    [{ text: "Уровень 1", callback_data: "level_1" }],
+    [{ text: "Уровень 2", callback_data: "level_2" }],
+    [
+      {
+        text: 'Сообщество "BAGUVIX"',
+        url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05",
+      },
+    ],
+    [
+      {
+        text: "Управление подпиской",
+        callback_data: "manage_subscription",
+      },
+    ],
+    [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
+    ...(adminTelegramIds.includes(chatId.toString())
+      ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
+      : []),
+  ];
+
+  if (subscription && new Date(subscription.end_date) >= new Date()) {
+    if (subscription.level === 1) {
+      const channelLink = await bot.createChatInviteLink(
+        -1002306021477,
+        {
+          name: "Channel_Invite",
+          expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+        }
+      );
+      inlineKeyboard.push([
+        {
+          text: "Ссылка на закрытый канал",
+          url: channelLink.invite_link,
+        },
+      ]);
+    } else if (subscription.level === 2) {
+      const channelLink = await bot.createChatInviteLink(
+        -1002306021477,
+        {
+          name: "Channel_Invite",
+          expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+        }
+      );
+      const chatLink = await bot.createChatInviteLink(
+        -1002451832857,
+        {
+          name: "Chat_Invite",
+          expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+        }
+      );
+      inlineKeyboard.push([
+        {
+          text: "Ссылка на закрытый канал",
+          url: channelLink.invite_link,
+        },
+        {
+          text: "Ссылка на закрытый чат",
+          url: chatLink.invite_link,
+        },
+      ]);
+    }
+  }
+
   // Send the start message
   try {
     const message = await bot.sendVideo(chatId, "https://v.mover.uz/hC8FBeYZ_h.mp4", {
-      caption: "Добро пожаловать в сообщество радикального саморазвития\n\n" +
-        "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
-        "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
-        "Что ты получишь:\n" +
-        "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
-        "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
-        "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
-        "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
-        "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
-        "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
-        "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
-        "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
-        "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
+      caption: messageText,
       reply_markup: {
-        inline_keyboard: [
-          [{ text: "Уровень 1", callback_data: "level_1" }],
-          [{ text: "Уровень 2", callback_data: "level_2" }],
-          [{ text: 'Сообщество "BAGUVIX"', url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05" }],
-          [{ text: "Управление подпиской", callback_data: "manage_subscription" }],
-          [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
-          ...(adminTelegramIds.includes(chatId.toString())
-            ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
-            : []),
-        ],
+        inline_keyboard: inlineKeyboard,
       },
     });
 
@@ -602,22 +685,7 @@ bot.onText(/\/start/, async (msg) => {
     console.error("Ошибка при отправке видео:", error);
   }
 });
-const sendlinks = async () => {
-  const expireDate = Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60);
-  const channelLink = await bot.createChatInviteLink(-1002306021477, {
-    name: "Channel_Invite",
-    expire_date: expireDate
-  });
-  const chatLink = await bot.createChatInviteLink(-1002451832857, {
-    name: "Chat_Invite",
-    expire_date: expireDate
-  });
-  bot.sendMessage(
-    5793122261,
-    `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
-  );
-}
-sendlinks()
+
 // Handle callback queries
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
@@ -649,7 +717,6 @@ bot.on("callback_query", async (query) => {
         }
       );
       bot.userData[chatId].messageId = message.message_id;
-
     } else if (data.startsWith("agree_")) {
       const level = data.split("_")[1];
 
@@ -677,13 +744,15 @@ bot.on("callback_query", async (query) => {
           .limit(1)
           .single();
 
-        if (subscriptionError && subscriptionError.code === 'PGRST116') {
+        if (subscriptionError && subscriptionError.code === "PGRST116") {
           // Handle error if needed
         }
 
         // Check if the user has an active subscription
         if (subscription && new Date(subscription.end_date) >= new Date()) {
-          const expiryDate = new Date(subscription.end_date).toLocaleDateString();
+          const expiryDate = new Date(
+            subscription.end_date
+          ).toLocaleDateString();
 
           if (subscription.level === parseInt(level)) {
             // User already has the selected subscription level
@@ -693,10 +762,30 @@ bot.on("callback_query", async (query) => {
               {
                 reply_markup: {
                   inline_keyboard: [
-                    [{ text: `1 месяц - ${prices[`level_${level}`][1]} руб`, callback_data: `extend_1_${level}` }],
-                    [{ text: `3 месяца - ${prices[`level_${level}`][3]} руб`, callback_data: `extend_3_${level}` }],
-                    [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `extend_6_${level}` }],
-                    [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `extend_12_${level}` }],
+                    [
+                      {
+                        text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
+                        callback_data: `extend_1_${level}`,
+                      },
+                    ],
+                    [
+                      {
+                        text: `3 месяца - ${prices[`level_${level}`][3]} руб`,
+                        callback_data: `extend_3_${level}`,
+                      },
+                    ],
+                    [
+                      {
+                        text: `6 месяцев - ${prices[`level_${level}`][6]} руб`,
+                        callback_data: `extend_6_${level}`,
+                      },
+                    ],
+                    [
+                      {
+                        text: `1 год - ${prices[`level_${level}`][12]} руб`,
+                        callback_data: `extend_12_${level}`,
+                      },
+                    ],
                     [{ text: "Назад", callback_data: "back_to_main" }],
                   ],
                 },
@@ -711,10 +800,30 @@ bot.on("callback_query", async (query) => {
               {
                 reply_markup: {
                   inline_keyboard: [
-                    [{ text: `1 месяц - ${prices[`level_2`][1]} руб`, callback_data: `extend_1_2` }],
-                    [{ text: `3 месяца - ${prices[`level_2`][3]} руб`, callback_data: `extend_3_2` }],
-                    [{ text: `6 месяцев - ${prices[`level_2`][6]} руб`, callback_data: `extend_6_2` }],
-                    [{ text: `1 год - ${prices[`level_2`][12]} руб`, callback_data: `extend_12_2` }],
+                    [
+                      {
+                        text: `1 месяц - ${prices[`level_2`][1]} руб`,
+                        callback_data: `extend_1_2`,
+                      },
+                    ],
+                    [
+                      {
+                        text: `3 месяца - ${prices[`level_2`][3]} руб`,
+                        callback_data: `extend_3_2`,
+                      },
+                    ],
+                    [
+                      {
+                        text: `6 месяцев - ${prices[`level_2`][6]} руб`,
+                        callback_data: `extend_6_2`,
+                      },
+                    ],
+                    [
+                      {
+                        text: `1 год - ${prices[`level_2`][12]} руб`,
+                        callback_data: `extend_12_2`,
+                      },
+                    ],
                     [{ text: "Назад", callback_data: "back_to_main" }],
                   ],
                 },
@@ -729,10 +838,30 @@ bot.on("callback_query", async (query) => {
               {
                 reply_markup: {
                   inline_keyboard: [
-                    [{ text: `1 месяц - ${prices[`level_${level}`][1]} руб`, callback_data: `duration_1_${level}` }],
-                    [{ text: `3 месяца - ${prices[`level_${level}`][3]} руб`, callback_data: `duration_3_${level}` }],
-                    [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
-                    [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
+                    [
+                      {
+                        text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
+                        callback_data: `duration_1_${level}`,
+                      },
+                    ],
+                    [
+                      {
+                        text: `3 месяца - ${prices[`level_${level}`][3]} руб`,
+                        callback_data: `duration_3_${level}`,
+                      },
+                    ],
+                    [
+                      {
+                        text: `6 месяцев - ${prices[`level_${level}`][6]} руб`,
+                        callback_data: `duration_6_${level}`,
+                      },
+                    ],
+                    [
+                      {
+                        text: `1 год - ${prices[`level_${level}`][12]} руб`,
+                        callback_data: `duration_12_${level}`,
+                      },
+                    ],
                     [{ text: "Назад", callback_data: "back_to_main" }],
                   ],
                 },
@@ -748,10 +877,30 @@ bot.on("callback_query", async (query) => {
             {
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: `1 месяц - ${prices[`level_${level}`][1]} руб`, callback_data: `duration_1_${level}` }],
-                  [{ text: `3 месяца - ${prices[`level_${level}`][3]} руб`, callback_data: `duration_3_${level}` }],
-                  [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
-                  [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
+                  [
+                    {
+                      text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
+                      callback_data: `duration_1_${level}`,
+                    },
+                  ],
+                  [
+                    {
+                      text: `3 месяца - ${prices[`level_${level}`][3]} руб`,
+                      callback_data: `duration_3_${level}`,
+                    },
+                  ],
+                  [
+                    {
+                      text: `6 месяцев - ${prices[`level_${level}`][6]} руб`,
+                      callback_data: `duration_6_${level}`,
+                    },
+                  ],
+                  [
+                    {
+                      text: `1 год - ${prices[`level_${level}`][12]} руб`,
+                      callback_data: `duration_12_${level}`,
+                    },
+                  ],
                   [{ text: "Назад", callback_data: "back_to_main" }],
                 ],
               },
@@ -767,10 +916,30 @@ bot.on("callback_query", async (query) => {
           {
             reply_markup: {
               inline_keyboard: [
-                [{ text: `1 месяц - ${prices[`level_${level}`][1]} руб`, callback_data: `duration_1_${level}` }],
-                [{ text: `3 месяца - ${prices[`level_${level}`][3]} руб`, callback_data: `duration_3_${level}` }],
-                [{ text: `6 месяцев - ${prices[`level_${level}`][6]} руб`, callback_data: `duration_6_${level}` }],
-                [{ text: `1 год - ${prices[`level_${level}`][12]} руб`, callback_data: `duration_12_${level}` }],
+                [
+                  {
+                    text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
+                    callback_data: `duration_1_${level}`,
+                  },
+                ],
+                [
+                  {
+                    text: `3 месяца - ${prices[`level_${level}`][3]} руб`,
+                    callback_data: `duration_3_${level}`,
+                  },
+                ],
+                [
+                  {
+                    text: `6 месяцев - ${prices[`level_${level}`][6]} руб`,
+                    callback_data: `duration_6_${level}`,
+                  },
+                ],
+                [
+                  {
+                    text: `1 год - ${prices[`level_${level}`][12]} руб`,
+                    callback_data: `duration_12_${level}`,
+                  },
+                ],
                 [{ text: "Назад", callback_data: "back_to_main" }],
               ],
             },
@@ -780,33 +949,48 @@ bot.on("callback_query", async (query) => {
       }
     } else if (data === "disagree") {
       // Return to the main menu
-      const message = await bot.sendVideo(chatId, "https://v.mover.uz/hC8FBeYZ_h.mp4", {
-        caption: "Добро пожаловать в сообщество радикального саморазвития\n\n" +
-          "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
-          "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
-          "Что ты получишь:\n" +
-          "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
-          "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
-          "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
-          "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
-          "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
-          "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
-          "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
-          "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
-          "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "Уровень 1", callback_data: "level_1" }],
-            [{ text: "Уровень 2", callback_data: "level_2" }],
-            [{ text: 'Сообщество "BAGUVIX"', url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05" }],
-            [{ text: "Управление подпиской", callback_data: "manage_subscription" }],
-            [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
-            ...(adminTelegramIds.includes(chatId.toString())
-              ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
-              : []),
-          ],
-        },
-      });
+      const message = await bot.sendVideo(
+        chatId,
+        "https://v.mover.uz/hC8FBeYZ_h.mp4",
+        {
+          caption:
+            "Добро пожаловать в сообщество радикального саморазвития\n\n" +
+            "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
+            "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
+            "Что ты получишь:\n" +
+            "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
+            "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
+            "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
+            "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
+            "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
+            "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
+            "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
+            "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
+            "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Уровень 1", callback_data: "level_1" }],
+              [{ text: "Уровень 2", callback_data: "level_2" }],
+              [
+                {
+                  text: 'Сообщество "BAGUVIX"',
+                  url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05",
+                },
+              ],
+              [
+                {
+                  text: "Управление подпиской",
+                  callback_data: "manage_subscription",
+                },
+              ],
+              [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
+              ...(adminTelegramIds.includes(chatId.toString())
+                ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
+                : []),
+            ],
+          },
+        }
+      );
       bot.userData[chatId].messageId = message.message_id;
     } else if (data.startsWith("extend_")) {
       const [_, duration, level] = data.split("_");
@@ -843,49 +1027,60 @@ bot.on("callback_query", async (query) => {
 
       bot.userData[chatId].messageId = message.message_id;
     } else if (data === "back_to_main") {
-      const message = await bot.sendVideo(chatId, "https://v.mover.uz/hC8FBeYZ_h.mp4", {
-        caption: "Добро пожаловать в сообщество радикального саморазвития\n\n" +
-          "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
-          "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
-          "Что ты получишь:\n" +
-          "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
-          "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
-          "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
-          "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
-          "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
-          "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
-          "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
-          "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
-          "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "Уровень 1", callback_data: "level_1" }],
-            [{ text: "Уровень 2", callback_data: "level_2" }],
-            [{ text: 'Сообщество "BAGUVIX"', url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05" }],
-            [{ text: "Управление подпиской", callback_data: "manage_subscription" }],
-            [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
-            ...(adminTelegramIds.includes(chatId.toString())
-              ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
-              : []),
-          ],
-        },
-      });
-
-      bot.userData[chatId].messageId = message.message_id;
-    } else if (data === "admin_panel") {
-      const adminUrl = "https://baguvix-mini-app.vercel.app/admin";
-      const message = await bot.sendMessage(
+      const message = await bot.sendVideo(
         chatId,
-        "Открыть админ-панель",
+        "https://v.mover.uz/hC8FBeYZ_h.mp4",
         {
+          caption:
+            "Добро пожаловать в сообщество радикального саморазвития\n\n" +
+            "В мире, где большинство живет на автопилоте, мы создаем среду для тех, кто берет ответственность за свою жизнь. " +
+            "Здесь нет случайных людей — только те, кто выбрал путь развития.\n\n" +
+            "Что ты получишь:\n" +
+            "✔ Системное саморазвитие — не просто советы, а пошаговую стратегию роста.\n" +
+            "✔ Психология силы — дисциплина, управление собой, достижение целей.\n" +
+            "✔ Физическая мощь — тренировки, нутрицевтика, восстановление.\n" +
+            "✔ Развитие интеллекта — стратегическое мышление, контроль эмоций.\n" +
+            "✔ Природа мужчины и женщины — гормоны, отношения, социальные роли.\n" +
+            "✔ Максимальная продуктивность — биохакинг, работа с ресурсами организма.\n" +
+            "✔ Среда сильных — вокруг тебя будут предприниматели, бойцы, элитные спортсмены, профессионалы.\n\n" +
+            "Мы не даем пустых обещаний — только реальные инструменты и окружение, которое заставит тебя расти.\n\n" +
+            "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
           reply_markup: {
             inline_keyboard: [
-              [{ text: "Открыть админ-панель", web_app: { url: adminUrl } }],
-              [{ text: "Назад", callback_data: "back_to_main" }],
+              [{ text: "Уровень 1", callback_data: "level_1" }],
+              [{ text: "Уровень 2", callback_data: "level_2" }],
+              [
+                {
+                  text: 'Сообщество "BAGUVIX"',
+                  url: "https://telegra.ph/Soobshchestvo-BAGUVIX-03-05",
+                },
+              ],
+              [
+                {
+                  text: "Управление подпиской",
+                  callback_data: "manage_subscription",
+                },
+              ],
+              [{ text: "Открыть мини-приложение", callback_data: "open_app" }],
+              ...(adminTelegramIds.includes(chatId.toString())
+                ? [[{ text: "Админ-панель", callback_data: "admin_panel" }]]
+                : []),
             ],
           },
         }
       );
+
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data === "admin_panel") {
+      const adminUrl = "https://baguvix-mini-app.vercel.app/admin";
+      const message = await bot.sendMessage(chatId, "Открыть админ-панель", {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "Открыть админ-панель", web_app: { url: adminUrl } }],
+            [{ text: "Назад", callback_data: "back_to_main" }],
+          ],
+        },
+      });
 
       bot.userData[chatId].messageId = message.message_id;
     } else if (data === "open_app") {
@@ -912,7 +1107,9 @@ bot.on("callback_query", async (query) => {
           "У вас нет активной подписки. Подпишитесь на один из тарифов.",
           {
             reply_markup: {
-              inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
+              inline_keyboard: [
+                [{ text: "Назад", callback_data: "back_to_main" }],
+              ],
             },
           }
         );
@@ -926,7 +1123,12 @@ bot.on("callback_query", async (query) => {
           {
             reply_markup: {
               inline_keyboard: [
-                [{ text: "Открыть мини-приложение", web_app: { url: miniAppUrl } }],
+                [
+                  {
+                    text: "Открыть мини-приложение",
+                    web_app: { url: miniAppUrl },
+                  },
+                ],
                 [{ text: "Назад", callback_data: "back_to_main" }],
               ],
             },
@@ -965,7 +1167,9 @@ bot.on("callback_query", async (query) => {
           "У вас нет активной подписки. Подпишитесь на один из тарифов.",
           {
             reply_markup: {
-              inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
+              inline_keyboard: [
+                [{ text: "Назад", callback_data: "back_to_main" }],
+              ],
             },
           }
         );
@@ -979,11 +1183,20 @@ bot.on("callback_query", async (query) => {
 
         const message = await bot.sendMessage(
           chatId,
-          `Здесь ты можешь управлять своей подпиской.\n\nТвоя подписка: Уровень ${subscription.level}, действует до ${expiryDate}.\nСледующее списание: ${nextChargeDateStr}, сумма: ${prices[`level_${subscription.level}`][1]} руб.`,
+          `Здесь ты можешь управлять своей подпиской.\n\nТвоя подписка: Уровень ${
+            subscription.level
+          }, действует до ${expiryDate}.\nСледующее списание: ${nextChargeDateStr}, сумма: ${
+            prices[`level_${subscription.level}`][1]
+          } руб.`,
           {
             reply_markup: {
               inline_keyboard: [
-                [{ text: "Отменить автопродление", callback_data: "cancel_auto_renew" }],
+                [
+                  {
+                    text: "Отменить автопродление",
+                    callback_data: "cancel_auto_renew",
+                  },
+                ],
                 [{ text: "Назад", callback_data: "back_to_main" }], // Added "Назад" button
               ],
             },
@@ -1008,7 +1221,6 @@ bot.on("callback_query", async (query) => {
 
         bot.userData[chatId].messageId = message.message_id;
       }
-
     } else if (data === "cancel_auto_renew") {
       const { data: user, error: userError } = await supabase
         .from("usersa")
@@ -1098,21 +1310,49 @@ bot.on("callback_query", async (query) => {
         // Check payment status every second
         const checkPaymentInterval = setInterval(async () => {
           try {
-            const confirmation = await confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, userId, level, duration);
+            const confirmation = await confirmPayment(
+              paymentId,
+              tinkoffTerminalKey,
+              tinkoffPassword,
+              userId,
+              level,
+              duration
+            );
 
             if (confirmation.success) {
               clearInterval(checkPaymentInterval);
-
-              // Send the chat and channel links after confirming the payment
+              const expireDate =
+              Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
               if (level === "1") {
-                const channelLink = await bot.createChatInviteLink(-1002306021477);
+                const channelLink = await bot.createChatInviteLink(
+                  -1002306021477,
+                  {
+                    name: "Channel_Invite",
+                    expire_date: expireDate,
+                  }
+                );
+               
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}`
                 );
+                
               } else if (level === "2") {
-                const channelLink = await bot.createChatInviteLink(-1002306021477);
-                const chatLink = await bot.createChatInviteLink(-1002451832857);
+               
+                const channelLink = await bot.createChatInviteLink(
+                  -1002306021477,
+                  {
+                    name: "Channel_Invite",
+                    expire_date: expireDate,
+                  }
+                );
+                const chatLink = await bot.createChatInviteLink(
+                  -1002451832857,
+                  {
+                    name: "Chat_Invite",
+                    expire_date: expireDate,
+                  }
+                );
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
@@ -1124,7 +1364,9 @@ bot.on("callback_query", async (query) => {
                 "Оплата подтверждена! Ваша подписка активирована.",
                 {
                   reply_markup: {
-                    inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
+                    inline_keyboard: [
+                      [{ text: "Назад", callback_data: "back_to_main" }],
+                    ],
                   },
                 }
               );
@@ -1132,7 +1374,6 @@ bot.on("callback_query", async (query) => {
               bot.userData[chatId].messageId = message.message_id;
               // Add logic to update the user's subscription status
             }
-
           } catch (error) {
             clearInterval(checkPaymentInterval);
             bot.sendMessage(
@@ -1141,7 +1382,6 @@ bot.on("callback_query", async (query) => {
             );
           }
         }, 1000);
-
       } catch (error) {
         bot.sendMessage(
           chatId,
@@ -1155,8 +1395,15 @@ bot.on("callback_query", async (query) => {
   }
 });
 
-async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, userId, level, duration) {
-  const url = 'https://securepay.tinkoff.ru/v2/GetState';
+async function confirmPayment(
+  paymentId,
+  tinkoffTerminalKey,
+  tinkoffPassword,
+  userId,
+  level,
+  duration
+) {
+  const url = "https://securepay.tinkoff.ru/v2/GetState";
 
   const payload = {
     TerminalKey: tinkoffTerminalKey,
@@ -1167,48 +1414,48 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, us
   const tokenString = `${tinkoffPassword}${paymentId}${tinkoffTerminalKey}`;
 
   // Generate the token
-  payload.Token = crypto.createHash('sha256').update(tokenString).digest('hex');
+  payload.Token = crypto.createHash("sha256").update(tokenString).digest("hex");
 
   try {
     const response = await axios.post(url, payload, {
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
     });
 
     const status = response.data.Status;
 
     let success = false;
-    let message = '';
+    let message = "";
 
     switch (status) {
-      case 'NEW':
-        message = 'Payment is created but not processed yet.';
+      case "NEW":
+        message = "Payment is created but not processed yet.";
         break;
-      case 'CANCELED':
-        message = 'Payment was canceled.';
+      case "CANCELED":
+        message = "Payment was canceled.";
         break;
-      case 'PREAUTHORIZING':
-        message = 'Payment is being pre-authorized.';
+      case "PREAUTHORIZING":
+        message = "Payment is being pre-authorized.";
         break;
-      case 'FORMSHOWED':
-        message = 'Payment form is displayed to the customer.';
+      case "FORMSHOWED":
+        message = "Payment form is displayed to the customer.";
         break;
-      case 'DEADLINE_EXPIRED':
-        message = 'Payment time expired.';
+      case "DEADLINE_EXPIRED":
+        message = "Payment time expired.";
         break;
-      case 'AUTHORIZED':
-        message = 'Funds are reserved on the customer’s card.';
+      case "AUTHORIZED":
+        message = "Funds are reserved on the customer’s card.";
         break;
-      case 'AUTHORIZING':
-        message = 'Payment is being authorized.';
+      case "AUTHORIZING":
+        message = "Payment is being authorized.";
         break;
-      case 'CONFIRMING':
-        message = 'Payment is being confirmed.';
+      case "CONFIRMING":
+        message = "Payment is being confirmed.";
         break;
-      case 'CONFIRMED':
+      case "CONFIRMED":
         success = true;
-        message = 'Payment is fully confirmed.';
+        message = "Payment is fully confirmed.";
 
         // Update or create the subscription in the database
         const { data: subscription, error: fetchError } = await supabase
@@ -1220,23 +1467,24 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, us
           .limit(1)
           .single();
 
-        if (fetchError) {
-          const { error: insertError } = await supabase
-          .from("subscriptions")
-          .insert([{
-            user_id: userId,
-            level: level,
-            start_date: new Date(),
-            end_date: newEndDate,
-            auto_renew: true, // Assuming auto-renew is enabled by default
-          }]);
-        }
-
         let newEndDate = new Date();
         if (subscription) {
           newEndDate = new Date(subscription.end_date);
         }
         newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
+        if (fetchError) {
+          const { error: insertError } = await supabase
+            .from("subscriptions")
+            .insert([
+              {
+                user_id: userId,
+                level: level,
+                start_date: new Date(),
+                end_date: newEndDate,
+                auto_renew: true, // Assuming auto-renew is enabled by default
+              },
+            ]);
+        }
 
         if (subscription) {
           // Extend existing subscription
@@ -1253,13 +1501,15 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, us
           // Create new subscription
           const { error: insertError } = await supabase
             .from("subscriptions")
-            .insert([{
-              user_id: userId,
-              level: level,
-              start_date: new Date(),
-              end_date: newEndDate,
-              auto_renew: true, // Assuming auto-renew is enabled by default
-            }]);
+            .insert([
+              {
+                user_id: userId,
+                level: level,
+                start_date: new Date(),
+                end_date: newEndDate,
+                auto_renew: true, // Assuming auto-renew is enabled by default
+              },
+            ]);
 
           if (insertError) {
             console.error("Error inserting subscription:", insertError);
@@ -1267,23 +1517,23 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, us
           }
         }
         break;
-      case 'REFUNDING':
-        message = 'Payment is being refunded.';
+      case "REFUNDING":
+        message = "Payment is being refunded.";
         break;
-      case 'REFUNDED':
-        message = 'Payment was refunded.';
+      case "REFUNDED":
+        message = "Payment was refunded.";
         break;
-      case 'REJECTED':
-        message = 'Payment was rejected.';
+      case "REJECTED":
+        message = "Payment was rejected.";
         break;
-      case 'THREE_DS_CHECKING':
-        message = '3-D Secure check is in progress.';
+      case "THREE_DS_CHECKING":
+        message = "3-D Secure check is in progress.";
         break;
-      case 'THREE_DS_CHECKED':
-        message = '3-D Secure check is completed.';
+      case "THREE_DS_CHECKED":
+        message = "3-D Secure check is completed.";
         break;
       default:
-        message = 'Unknown payment status.';
+        message = "Unknown payment status.";
     }
 
     return {
@@ -1292,7 +1542,7 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, us
       message,
     };
   } catch (error) {
-    console.error('Error confirming payment:', error);
+    console.error("Error confirming payment:", error);
     throw error;
   }
 }
