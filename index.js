@@ -237,7 +237,7 @@ app.post("/api/tinkoff/pay", async (req, res) => {
   const { amount, currency, description, email, userId, level, duration } = req.body;
 
   try {
-    const paymentData = await createPaymentLink(
+    const { paymentLink, paymentId } = await createPaymentLink(
       amount,
       currency,
       description,
@@ -246,98 +246,10 @@ app.post("/api/tinkoff/pay", async (req, res) => {
       level,
       duration
     );
-    const paymentLink = paymentData.PaymentURL;
-    res.json(paymentData);
+    res.json({ paymentLink, paymentId });
   } catch (error) {
     res.status(500).json({ error: "Ошибка при создании платежной ссылки" });
   }
-});
-
-app.post("/api/tinkoff/webhook", async (req, res) => {
-  const { Status, OrderId, Success, PaymentId } = req.body;
-
-  if (Success === "true" && Status === "CONFIRMED") {
-    console.log("Payment confirmed:", PaymentId);
-
-    const [userId, level, duration] = OrderId.split("_");
-
-    const { data: user, error: userError } = await supabase
-      .from("usersa")
-      .select("telegram_id")
-      .eq("id", userId)
-      .single();
-
-    if (userError) {
-      return res
-        .status(500)
-        .json({ error: "Ошибка при получении пользователя" });
-    }
-
-    const telegramId = user.telegram_id;
-
-    const { data: subscription, error: fetchError } = await supabase
-      .from("subscriptions")
-      .select("*")
-      .eq("user_id", userId)
-      .order("end_date", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (fetchError) {
-      return res.status(500).json({ error: "Ошибка при получении подписки" });
-    }
-
-    const newEndDate = new Date(
-      subscription ? subscription.end_date : new Date()
-    );
-    newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
-
-    const { data, error } = await supabase
-      .from("subscriptions")
-      .upsert([
-        {
-          user_id: userId,
-          level,
-          start_date: new Date(),
-          end_date: newEndDate,
-        },
-      ]);
-
-    if (error) {
-      return res.status(500).json({ error: "Ошибка при обновлении подписки" });
-    }
-
-    // Отправка ссылок после успешной оплаты
-    if (level === "1") {
-      const channelLink = await bot.createChatInviteLink(-1002451832857, {
-        expire_date: Math.floor(Date.now() / 1000) + 3600,
-      });
-      bot.sendMessage(
-        telegramId,
-        `Ссылка на закрытый канал: ${channelLink.invite_link}`
-      );
-    } else if (level === "2") {
-      const channelLink = await bot.createChatInviteLink(-1002451832857, {
-        expire_date: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const chatLink = await bot.createChatInviteLink(-1002451832857, {
-        expire_date: Math.floor(Date.now() / 1000) + 3600,
-      });
-      bot.sendMessage(
-        telegramId,
-        `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
-      );
-    }
-
-    bot.sendMessage(
-      telegramId,
-      "Оплата прошла успешно! Ваша подписка куплена."
-    );
-  } else {
-    console.log("Payment failed:", PaymentId);
-  }
-
-  res.send("OK");
 });
 
 // Уведомления о подписке
@@ -413,10 +325,9 @@ async function autoRenewSubscriptions() {
 async function initiateAutoRenewalPayment(userId, level, duration) {
   const amount = calculateAmount(level, duration);
 
-  // Retrieve stored values from the database
   const { data: subscription, error } = await supabase
     .from("subscriptions")
-    .select("agreement_number, document_number, execution_order")
+    .select("rebill_id")
     .eq("user_id", userId)
     .eq("level", level)
     .single();
@@ -426,42 +337,24 @@ async function initiateAutoRenewalPayment(userId, level, duration) {
     throw error;
   }
 
-  const { agreement_number, document_number, execution_order } = subscription;
-
-  const accountNumber = '40802810600007943932';
-  const purpose = `Оплата подписки на Уровень ${level} на ${duration} месяц(ев)`;
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + 30); // Set due date to 30 days from now
-
   const payload = {
-    id: `${userId}_${level}_${duration}_${new Date().getTime()}`,
-    from: {
-      accountNumber: accountNumber,
-    },
-    to: {
-      agreementNumber: agreement_number,
-    },
-    purpose: purpose,
-    documentNumber: document_number,
-    amount: amount,
-    executionOrder: execution_order,
-    dueDate: dueDate.toISOString(),
+    RebillId: subscription.rebill_id,
+    Amount: amount * 100, // Amount in kopecks
   };
 
   try {
     const response = await axios.post(
-      'https://secured-openapi.tbank.ru/api/v1/payment/card-transfer/pay',
+      'https://securepay.tinkoff.ru/v2/Charge',
       payload,
       {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer YOUR_API_TOKEN`, // Replace with your API token
         },
       }
     );
     return response.data;
   } catch (error) {
-    console.error('Error initiating auto-renewal payment:', error);
+    console.error('Error charging recurrent payment:', error);
     throw error;
   }
 }
@@ -549,16 +442,16 @@ schedule.scheduleJob("* * * * * *", async () => {
 // Telegram-бот
 const prices = {
   level_1: {
-    1: 1490,
-    3: 3990,
-    6: 7490,
-    12: 14290,
+    1: 1,
+    3: 1,
+    6: 1,
+    12: 1,
   },
   level_2: {
-    1: 4990,
-    3: 13390,
-    6: 25390,
-    12: 47890,
+    1: 1,
+    3: 1,
+    6: 1,
+    12: 1,
   },
 };
 
@@ -1070,7 +963,7 @@ bot.on("callback_query", async (query) => {
       const userId = user.id;
 
       try {
-        const response = await createPaymentLink(
+        const { paymentLink, paymentId } = await createPaymentLink(
           amount,
           "RUB",
           `${userId}_${level}_${duration}`,
@@ -1079,9 +972,6 @@ bot.on("callback_query", async (query) => {
           level,
           duration
         );
-        const paymentLink = response.PaymentURL;
-        const paymentId = response.PaymentId;
-        console.log(response);
 
         const message = await bot.sendMessage(
           chatId,
@@ -1102,8 +992,33 @@ bot.on("callback_query", async (query) => {
         const checkPaymentInterval = setInterval(async () => {
           try {
             const confirmation = await confirmPayment(paymentId);
+            console.log(confirmation);
+
             if (confirmation.success) {
               clearInterval(checkPaymentInterval);
+
+              // Send the chat and channel links after confirming the payment
+              if (level === "1") {
+                const channelLink = await bot.createChatInviteLink(-1002451832857, {
+                  expire_date: Math.floor(Date.now() / 1000) + 3600,
+                });
+                bot.sendMessage(
+                  chatId,
+                  `Ссылка на закрытый канал: ${channelLink.invite_link}`
+                );
+              } else if (level === "2") {
+                const channelLink = await bot.createChatInviteLink(-1002451832857, {
+                  expire_date: Math.floor(Date.now() / 1000) + 3600,
+                });
+                const chatLink = await bot.createChatInviteLink(-1002451832857, {
+                  expire_date: Math.floor(Date.now() / 1000) + 3600,
+                });
+                bot.sendMessage(
+                  chatId,
+                  `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
+                );
+              }
+
               const message = await bot.sendMessage(
                 chatId,
                 "Оплата подтверждена! Ваша подписка активирована.",
@@ -1139,91 +1054,6 @@ bot.on("callback_query", async (query) => {
   }
 });
 
-async function createPaymentLink(amount, currency, description, email, userId, level, duration) {
-  const url = "https://securepay.tinkoff.ru/v2/Init";
-
-  // Generate a unique order ID
-  const orderId = crypto.randomBytes(16).toString("hex");
-
-  // Generate unique agreementNumber and documentNumber
-  const agreementNumber = `AGR-${userId}-${level}-${duration}`;
-  const documentNumber = Math.floor(100000 + Math.random() * 900000); // Random 6-digit number
-  const executionOrder = 5; // Default execution order
-
-  // Receipt details
-  const receipt = {
-    Email: email,
-    Phone: "+79990000000", // You can add a phone number if available
-    Taxation: "osn", // Taxation system, e.g., "osn" for general taxation system
-    Items: [
-      {
-        Name: "Subscription",
-        Price: amount * 100, // Amount in kopecks
-        Quantity: 1.00,
-        Amount: amount * 100, // Amount in kopecks
-        Tax: "none", // Tax type, e.g., "vat0" for 0% VAT
-      },
-    ],
-  };
-
-  // Collect parameters for token generation
-  const params = {
-    Amount: amount * 100, // Amount in kopecks
-    OrderId: orderId,
-    Description: description,
-    TerminalKey: tinkoffTerminalKey,
-    Password: tinkoffPassword,
-  };
-
-  // Sort parameters alphabetically by key
-  const sortedKeys = Object.keys(params).sort();
-
-  // Concatenate values of sorted parameters
-  const concatenatedValues = sortedKeys.map((key) => params[key]).join("");
-
-  // Calculate the token using SHA-256
-  const token = crypto
-    .createHash("sha256")
-    .update(concatenatedValues)
-    .digest("hex");
-
-  const payload = {
-    TerminalKey: tinkoffTerminalKey,
-    Token: token,
-    Amount: amount * 100, // Amount in kopecks
-    OrderId: orderId,
-    Description: description,
-    DATA: {
-      Email: email,
-    },
-    Receipt: receipt, // Include the receipt object directly
-  };
-
-  try {
-    const response = await axios.post(url, payload, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    // Store the generated values in the database
-    await supabase
-      .from("subscriptions")
-      .update({
-        agreement_number: agreementNumber,
-        document_number: documentNumber,
-        execution_order: executionOrder,
-      })
-      .eq("user_id", userId)
-      .eq("level", level);
-
-    return response.data;
-  } catch (error) {
-    console.error("Error creating payment link:", error);
-    throw error;
-  }
-}
-
 async function confirmPayment(paymentId) {
   const url = `https://securepay.tinkoff.ru/v2/GetState`;
 
@@ -1254,16 +1084,16 @@ async function confirmPayment(paymentId) {
 function calculateAmount(level, duration) {
   const prices = {
     level_1: {
-      1: 1490,
-      3: 3990,
-      6: 7490,
-      12: 14290,
+      1: 1,
+      3: 1,
+      6: 1,
+      12: 1,
     },
     level_2: {
-      1: 4990,
-      3: 13390,
-      6: 25390,
-      12: 47890,
+      1: 1,
+      3: 1,
+      6: 1,
+      12: 1,
     },
   };
 
