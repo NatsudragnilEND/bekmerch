@@ -252,6 +252,97 @@ app.post("/api/tinkoff/pay", async (req, res) => {
   }
 });
 
+async function createPaymentLink(amount, currency, description, email, userId, level, duration) {
+  const url = "https://securepay.tinkoff.ru/v2/Init";
+
+  // Generate a unique order ID
+  const orderId = crypto.randomBytes(16).toString("hex");
+
+  // Generate unique agreementNumber and documentNumber
+  const agreementNumber = `AGR-${userId}-${level}-${duration}`;
+  const documentNumber = Math.floor(100000 + Math.random() * 900000); // Random 6-digit number
+  const executionOrder = 5; // Default execution order
+
+  // Receipt details
+  const receipt = {
+    Email: email,
+    Phone: "+79990000000", // You can add a phone number if available
+    Taxation: "osn", // Taxation system, e.g., "osn" for general taxation system
+    Items: [
+      {
+        Name: "Subscription",
+        Price: amount * 100, // Amount in kopecks
+        Quantity: 1.00,
+        Amount: amount * 100, // Amount in kopecks
+        Tax: "none", // Tax type, e.g., "vat0" for 0% VAT
+      },
+    ],
+  };
+
+  // Collect parameters for token generation
+  const params = {
+    Amount: amount * 100, // Amount in kopecks
+    OrderId: orderId,
+    Description: description,
+    TerminalKey: tinkoffTerminalKey,
+    Password: tinkoffPassword,
+    Recurrent: "Y", // Enable recurrent payments
+  };
+
+  // Sort parameters alphabetically by key
+  const sortedKeys = Object.keys(params).sort();
+
+  // Concatenate values of sorted parameters
+  const concatenatedValues = sortedKeys.map((key) => params[key]).join("");
+
+  // Calculate the token using SHA-256
+  const token = crypto
+    .createHash("sha256")
+    .update(concatenatedValues)
+    .digest("hex");
+
+  const payload = {
+    TerminalKey: tinkoffTerminalKey,
+    Token: token,
+    Amount: amount * 100, // Amount in kopecks
+    OrderId: orderId,
+    Description: description,
+    DATA: {
+      Email: email,
+    },
+    Receipt: receipt, // Include the receipt object directly
+    Recurrent: "Y", // Enable recurrent payments
+  };
+
+  try {
+    const response = await axios.post(url, payload, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    const paymentLink = response.data.PaymentURL;
+    const paymentId = response.data.PaymentId;
+
+    // Store the generated values in the database
+    await supabase
+      .from("subscriptions")
+      .update({
+        agreement_number: agreementNumber,
+        document_number: documentNumber,
+        execution_order: executionOrder,
+        rebill_id: response.data.RebillId, // Store the RebillId
+      })
+      .eq("user_id", userId)
+      .eq("level", level);
+
+    return { paymentLink, paymentId };
+  } catch (error) {
+    console.error("Error creating payment link:", error);
+    throw error;
+  }
+}
+
 // Уведомления о подписке
 schedule.scheduleJob("0 0 * * *", async () => {
   const today = new Date();
