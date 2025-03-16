@@ -891,10 +891,15 @@ bot.on("callback_query", async (query) => {
         .single();
 
       if (subscriptionError) {
-        console.error("Ошибка при получении подписки", subscriptionError);
-        return bot.sendMessage(
+        // no subscription
+        const message = await bot.sendMessage(
           chatId,
-          "Произошла ошибка при получении информации о подписке."
+          "У вас нет активной подписки. Подпишитесь на один из тарифов.",
+          {
+            reply_markup: {
+              inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
+            },
+          }
         );
       }
 
