@@ -452,7 +452,7 @@ async function initiateAutoRenewalPayment(userId, level, duration) {
 
 // Периодическая проверка участников группы
 async function checkGroupMembers() {
-  const groupChatId = "-1002451832857"; 
+  const groupChatId = "-1002451832857";
 
   try {
     const { data: members, error: membersError } = await supabase
@@ -1098,11 +1098,11 @@ bot.on("callback_query", async (query) => {
         // Check payment status every second
         const checkPaymentInterval = setInterval(async () => {
           try {
-            const confirmation = await confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword);
-        
+            const confirmation = await confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, userId, level, duration);
+
             if (confirmation.success) {
               clearInterval(checkPaymentInterval);
-        
+
               // Send the chat and channel links after confirming the payment
               if (level === "1") {
                 const channelLink = await bot.createChatInviteLink(-1002306021477);
@@ -1118,7 +1118,7 @@ bot.on("callback_query", async (query) => {
                   `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
                 );
               }
-        
+
               const message = await bot.sendMessage(
                 chatId,
                 "Оплата подтверждена! Ваша подписка активирована.",
@@ -1128,11 +1128,11 @@ bot.on("callback_query", async (query) => {
                   },
                 }
               );
-        
+
               bot.userData[chatId].messageId = message.message_id;
               // Add logic to update the user's subscription status
             }
-        
+
           } catch (error) {
             clearInterval(checkPaymentInterval);
             bot.sendMessage(
@@ -1141,8 +1141,6 @@ bot.on("callback_query", async (query) => {
             );
           }
         }, 1000);
-        
-        
 
       } catch (error) {
         bot.sendMessage(
@@ -1157,7 +1155,7 @@ bot.on("callback_query", async (query) => {
   }
 });
 
-async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword) {
+async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, userId, level, duration) {
   const url = 'https://securepay.tinkoff.ru/v2/GetState';
 
   const payload = {
@@ -1179,7 +1177,7 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword) {
     });
 
     const status = response.data.Status;
-    
+
     let success = false;
     let message = '';
 
@@ -1211,6 +1209,56 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword) {
       case 'CONFIRMED':
         success = true;
         message = 'Payment is fully confirmed.';
+
+        // Update or create the subscription in the database
+        const { data: subscription, error: fetchError } = await supabase
+          .from("subscriptions")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("level", level)
+          .order("end_date", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (fetchError) {
+          console.error("Error fetching subscription:", fetchError);
+          throw new Error("Error fetching subscription");
+        }
+
+        let newEndDate = new Date();
+        if (subscription) {
+          newEndDate = new Date(subscription.end_date);
+        }
+        newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
+
+        if (subscription) {
+          // Extend existing subscription
+          const { error: updateError } = await supabase
+            .from("subscriptions")
+            .update({ end_date: newEndDate })
+            .eq("id", subscription.id);
+
+          if (updateError) {
+            console.error("Error updating subscription:", updateError);
+            throw new Error("Error updating subscription");
+          }
+        } else {
+          // Create new subscription
+          const { error: insertError } = await supabase
+            .from("subscriptions")
+            .insert([{
+              user_id: userId,
+              level: level,
+              start_date: new Date(),
+              end_date: newEndDate,
+              auto_renew: true, // Assuming auto-renew is enabled by default
+            }]);
+
+          if (insertError) {
+            console.error("Error inserting subscription:", insertError);
+            throw new Error("Error inserting subscription");
+          }
+        }
         break;
       case 'REFUNDING':
         message = 'Payment is being refunded.';
