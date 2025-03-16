@@ -1221,8 +1221,15 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, us
           .single();
 
         if (fetchError) {
-          console.error("Error fetching subscription:", fetchError);
-          throw new Error("Error fetching subscription");
+          const { error: insertError } = await supabase
+          .from("subscriptions")
+          .insert([{
+            user_id: userId,
+            level: level,
+            start_date: new Date(),
+            end_date: newEndDate,
+            auto_renew: true, // Assuming auto-renew is enabled by default
+          }]);
         }
 
         let newEndDate = new Date();
