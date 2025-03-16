@@ -1082,9 +1082,8 @@ bot.on("callback_query", async (query) => {
         // Check payment status every second
         const checkPaymentInterval = setInterval(async () => {
           try {
-            const confirmation = await confirmPayment(paymentId);
-            console.log(confirmation);
-
+            const confirmation = await confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword);
+            
             if (confirmation.success) {
               clearInterval(checkPaymentInterval);
 
@@ -1145,29 +1144,87 @@ bot.on("callback_query", async (query) => {
   }
 });
 
-async function confirmPayment(paymentId) {
-  const url = `https://securepay.tinkoff.ru/v2/GetState`;
+async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword) {
+  const url = 'https://securepay.tinkoff.ru/v2/GetState';
 
   const payload = {
+    TerminalKey: tinkoffTerminalKey,
     PaymentId: paymentId,
-    Token: crypto
-      .createHash("sha256")
-      .update(tinkoffTerminalKey + paymentId + tinkoffPassword)
-      .digest("hex"),
   };
+
+  // Create a string for token generation
+  const tokenString = `${tinkoffPassword}${paymentId}${tinkoffTerminalKey}`;
+
+  // Generate the token
+  payload.Token = crypto.createHash('sha256').update(tokenString).digest('hex');
 
   try {
     const response = await axios.post(url, payload, {
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
     });
+
+    const status = response.data.Status;
+    
+    let success = false;
+    let message = '';
+
+    switch (status) {
+      case 'NEW':
+        message = 'Payment is created but not processed yet.';
+        break;
+      case 'CANCELED':
+        message = 'Payment was canceled.';
+        break;
+      case 'PREAUTHORIZING':
+        message = 'Payment is being pre-authorized.';
+        break;
+      case 'FORMSHOWED':
+        message = 'Payment form is displayed to the customer.';
+        break;
+      case 'DEADLINE_EXPIRED':
+        message = 'Payment time expired.';
+        break;
+      case 'AUTHORIZED':
+        message = 'Funds are reserved on the customer’s card.';
+        break;
+      case 'AUTHORIZING':
+        message = 'Payment is being authorized.';
+        break;
+      case 'CONFIRMING':
+        message = 'Payment is being confirmed.';
+        break;
+      case 'CONFIRMED':
+        success = true;
+        message = 'Payment is fully confirmed.';
+        break;
+      case 'REFUNDING':
+        message = 'Payment is being refunded.';
+        break;
+      case 'REFUNDED':
+        message = 'Payment was refunded.';
+        break;
+      case 'REJECTED':
+        message = 'Payment was rejected.';
+        break;
+      case 'THREE_DS_CHECKING':
+        message = '3-D Secure check is in progress.';
+        break;
+      case 'THREE_DS_CHECKED':
+        message = '3-D Secure check is completed.';
+        break;
+      default:
+        message = 'Unknown payment status.';
+    }
+
     return {
-      success: response.data.Status === "CONFIRMED",
-      message: response.data.Message,
+      success,
+      status,
+      message,
     };
   } catch (error) {
-    console.error("Error confirming payment:", error);
+    console.error('Error confirming payment:', error);
     throw error;
   }
 }
