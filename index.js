@@ -510,6 +510,75 @@ async function checkGroupMembers() {
         if (
           subscriptionError ||
           !subscription ||
+          new Date(subscription.end_date) < new Date() || subscription.level == 1
+        ) {
+          await bot.banChatMember(groupChatId, member.telegram_id);
+          setTimeout(async () => {
+            await bot.unbanChatMember(groupChatId, member.telegram_id);
+          }, 1000);
+        } else {
+        }
+      } catch (error) {
+        console.error(
+          `Ошибка при проверке участника с Telegram ID ${member.telegram_id}:`,
+          error
+        );
+      }
+    }
+  } catch (error) {
+    console.error("Ошибка при проверке участников группы:", error);
+  }
+}
+async function checkChannelMembers() {
+  const groupChatId = -1002306021477;
+
+  try {
+    const { data: members, error: membersError } = await supabase
+      .from("usersa")
+      .select("id, telegram_id");
+
+    if (membersError) {
+      throw new Error(
+        `Ошибка при получении зарегистрированных пользователей: ${membersError.message}`
+      );
+    }
+
+    // Convert database users into a Set for fast lookup
+    const dbUserIds = new Set(members.map((member) => member.telegram_id));
+
+    // Fetch all chat members (bot must be admin for this)
+    for (const member of members) {
+      try {
+        const chatMember = await bot.getChatMember(
+          groupChatId,
+          member.telegram_id
+        );
+
+        // Skip if user is an admin or the bot itself
+        if (["administrator", "creator"].includes(chatMember.status)) continue;
+
+        // Remove users who are not in the database
+        if (!dbUserIds.has(member.telegram_id)) {
+          await bot.banChatMember(
+            groupChatId,
+            member.telegram_id,
+            Math.floor(Date.now() / 1000) + 1
+          );
+          continue;
+        }
+
+        // Check user's subscription
+        const { data: subscription, error: subscriptionError } = await supabase
+          .from("subscriptions")
+          .select("*")
+          .eq("user_id", member.id)
+          .order("end_date", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (
+          subscriptionError ||
+          !subscription ||
           new Date(subscription.end_date) < new Date()
         ) {
           await bot.banChatMember(groupChatId, member.telegram_id);
@@ -529,7 +598,6 @@ async function checkGroupMembers() {
     console.error("Ошибка при проверке участников группы:", error);
   }
 }
-
 // Запуск сервера
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
@@ -543,6 +611,7 @@ schedule.scheduleJob("0 0 * * *", async () => {
 // Периодическая проверка участников группы
 schedule.scheduleJob("* * * * * *", async () => {
   await checkGroupMembers();
+  await checkChannelMembers();
 });
 
 // Telegram-бот
