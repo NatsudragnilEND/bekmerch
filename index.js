@@ -529,6 +529,7 @@ async function checkGroupMembers() {
     console.error("Ошибка при проверке участников группы:", error);
   }
 }
+
 async function checkChannelMembers() {
   const groupChatId = -1002306021477;
 
@@ -598,6 +599,67 @@ async function checkChannelMembers() {
     console.error("Ошибка при проверке участников группы:", error);
   }
 }
+
+// Handle new members joining the group or channel
+bot.on("new_chat_members", async (msg) => {
+  const chatId = msg.chat.id;
+  const newMembers = msg.new_chat_members;
+
+  for (const member of newMembers) {
+    const userId = member.id;
+
+    // Delete the join notification message
+    await bot.deleteMessage(chatId, msg.message_id);
+
+    // Check if the user has the required subscription level
+    const { data: user, error: userError } = await supabase
+      .from("usersa")
+      .select("id")
+      .eq("telegram_id", userId)
+      .single();
+
+    if (userError) {
+      console.error("Ошибка при получении пользователя", userError);
+      await bot.banChatMember(chatId, userId);
+      setTimeout(async () => {
+        await bot.unbanChatMember(chatId, userId);
+      }, 1000);
+      continue;
+    }
+
+    const { data: subscription, error: subscriptionError } = await supabase
+      .from("subscriptions")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("end_date", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (
+      subscriptionError ||
+      !subscription ||
+      new Date(subscription.end_date) < new Date()
+    ) {
+      await bot.banChatMember(chatId, userId);
+      setTimeout(async () => {
+        await bot.unbanChatMember(chatId, userId);
+      }, 1000);
+    } else {
+      if (chatId === -1002306021477 && subscription.level < 1) {
+        await bot.banChatMember(chatId, userId);
+        setTimeout(async () => {
+          await bot.unbanChatMember(chatId, userId);
+        }, 1000);
+      } else if (chatId === -1002451832857 && subscription.level < 2) {
+        await bot.banChatMember(chatId, userId);
+        setTimeout(async () => {
+          await bot.unbanChatMember(chatId, userId);
+        }, 1000);
+      }
+    }
+  }
+});
+
 // Запуск сервера
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
@@ -617,16 +679,16 @@ schedule.scheduleJob("* * * * * *", async () => {
 // Telegram-бот
 const prices = {
   level_1: {
-    1: 1,
-    3: 1,
-    6: 1,
-    12: 1,
+    1: 1490,
+    3: 3990,
+    6: 7490,
+    12: 14290,
   },
   level_2: {
-    1: 1,
-    3: 1,
-    6: 1,
-    12: 1,
+    1: 4990,
+    3: 13390,
+    6: 25390,
+    12: 47890,
   },
 };
 
@@ -634,7 +696,7 @@ bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
   // Fetch user data from the database
-  const { data: user, error: userError } = await supabase
+  let { data: user, error: userError } = await supabase
     .from("usersa")
     .select("id")
     .eq("telegram_id", chatId)
@@ -650,8 +712,15 @@ bot.onText(/\/start/, async (msg) => {
         last_name: msg.chat.last_name,
       },
     ]);
+    
   }
-
+  let { data: user2, error: userError2 } = await supabase
+  .from("usersa")
+  .select("id")
+  .eq("telegram_id", chatId)
+  .single();
+  user = user2;
+  
   // Fetch the user's subscription status
   const { data: subscription, error: subscriptionError } = await supabase
     .from("subscriptions")
@@ -698,47 +767,63 @@ bot.onText(/\/start/, async (msg) => {
   ];
 
   if (subscription && new Date(subscription.end_date) >= new Date()) {
-    if (subscription.level === 1) {
-      const channelLink = await bot.createChatInviteLink(
-        -1002306021477,
-        {
-          name: "Channel_Invite",
-          expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+    // Function to check if a user is an administrator
+    async function isUserAdmin(chatId, userId) {
+        try {
+            const admins = await bot.getChatAdministrators(chatId);
+            return admins.some(admin => admin.user.id === userId);
+        } catch (error) {
+            console.error("Error checking admin status:", error);
+            return false;
         }
-      );
-      inlineKeyboard.push([
-        {
-          text: "Ссылка на закрытый канал",
-          url: channelLink.invite_link,
-        },
-      ]);
-    } else if (subscription.level === 2) {
-      const channelLink = await bot.createChatInviteLink(
-        -1002306021477,
-        {
-          name: "Channel_Invite",
-          expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
-        }
-      );
-      const chatLink = await bot.createChatInviteLink(
-        -1002451832857,
-        {
-          name: "Chat_Invite",
-          expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
-        }
-      );
-      inlineKeyboard.push([
-        {
-          text: "Ссылка на закрытый канал",
-          url: channelLink.invite_link,
-        },
-        {
-          text: "Ссылка на закрытый чат",
-          url: chatLink.invite_link,
-        },
-      ]);
     }
-  }
+
+    const userIsAdmin = await isUserAdmin(-1002306021477, chatId);
+    const userIsAdminc = await isUserAdmin(-1002306021477, chatId);
+    if (subscription.level === 1 && !userIsAdmin) {
+        await bot.unbanChatMember(-1002306021477, chatId);
+        const channelLink = await bot.createChatInviteLink(
+            -1002306021477,
+            {
+                name: "Channel_Invite",
+                expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+            }
+        );
+        inlineKeyboard.push([
+            {
+                text: "Ссылка на закрытый канал",
+                url: channelLink.invite_link,
+            },
+        ]);
+    } else if (subscription.level === 2) {
+      if (!userIsAdmin) await bot.unbanChatMember(-1002306021477, chatId);
+        if(!userIsAdminc) await bot.unbanChatMember(-1002451832857, chatId);
+        const channelLink = await bot.createChatInviteLink(
+            -1002306021477,
+            {
+                name: "Channel_Invite",
+                expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+            }
+        );
+        const chatLink = await bot.createChatInviteLink(
+            -1002451832857,
+            {
+                name: "Chat_Invite",
+                expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+            }
+        );
+        inlineKeyboard.push([
+            {
+                text: "Ссылка на закрытый канал",
+                url: channelLink.invite_link,
+            },
+            {
+                text: "Ссылка на закрытый чат",
+                url: chatLink.invite_link,
+            },
+        ]);
+    }
+}
 
   // Send the start message
   try {
@@ -1400,14 +1485,14 @@ bot.on("callback_query", async (query) => {
                     expire_date: expireDate,
                   }
                 );
-               
+
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}`
                 );
-                
+
               } else if (level === "2") {
-               
+
                 const channelLink = await bot.createChatInviteLink(
                   -1002306021477,
                   {
@@ -1619,16 +1704,16 @@ async function confirmPayment(
 function calculateAmount(level, duration) {
   const prices = {
     level_1: {
-      1: 1,
-      3: 1,
-      6: 1,
-      12: 1,
+      1: 1490,
+      3: 3990,
+      6: 7490,
+      12: 14290,
     },
     level_2: {
-      1: 1,
-      3: 1,
-      6: 1,
-      12: 1,
+      1: 4990,
+      3: 13390,
+      6: 25390,
+      12: 47890,
     },
   };
 
