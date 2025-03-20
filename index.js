@@ -33,7 +33,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Массив Telegram ID администраторов
-const adminTelegramIds = ["5793122261", "292027815", "7518336354"];
+const adminTelegramIds = ["5793122261", "292027815", "7518336354", "500726521"];
 
 // Авторизация через Telegram
 app.get("/auth/telegram", async (req, res) => {
