@@ -1603,7 +1603,51 @@ bot.on("callback_query", async (query) => {
               );
 
               bot.userData[chatId].messageId = message.message_id;
-              // Add logic to update the user's subscription status
+              // logic to update the user's subscription status
+              const { data: user, error: usererror } = await supabase
+                .from("usersa")
+                .select("*")
+                .eq("telegram_id", chatId)
+                .single();
+              // Update the subscription status in your database
+              const { data: subscription, error: fetchError } = await supabase
+                .from("subscriptions")
+                .select("*")
+                .eq("user_id", user.id)
+                .eq("level", level)
+                .order("end_date", { ascending: false })
+                .limit(1)
+                .single();
+
+              let newEndDate = new Date();
+              if (subscription) {
+                newEndDate = new Date(subscription.end_date);
+              }
+              newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
+
+              if (fetchError) {
+                const { error: insertError } = await supabase
+                  .from("subscriptions")
+                  .insert([
+                    {
+                      user_id: user.id,
+                      level: level,
+                      start_date: new Date(),
+                      end_date: newEndDate,
+                      auto_renew: true,
+                    },
+                  ]);
+              } else {
+                const { error: updateError } = await supabase
+                  .from("subscriptions")
+                  .update({ end_date: newEndDate })
+                  .eq("id", subscription.id);
+
+                if (updateError) {
+                  console.error("Error updating subscription:", updateError);
+                  return res.status(500).send("Error updating subscription");
+                }
+              }
             }
           } catch (error) {
             clearInterval(checkPaymentInterval);
@@ -1879,7 +1923,6 @@ app.post("/webhook/lava", async (req, res) => {
     }
 
     res.status(200).send("Webhook received and processed");
-    
   } else {
     res.status(200).send("Webhook received, but not processed");
   }
