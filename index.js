@@ -463,18 +463,23 @@ async function initiateAutoRenewalPayment(userId, level, duration) {
 async function checkAllMembers() {
   const groups = [
     { id: -1002451832857, name: "Group" },
-    { id: -1002306021477, name: "Channel" }
+    { id: -1002306021477, name: "Channel" },
   ];
 
   let lastBotCallTime = 0;
 
   async function delayIfNeeded(error) {
-  let delay = 5000; // Базовая задержка
-  if (error && error.response && error.response.body && error.response.body.parameters?.retry_after) {
-    delay = error.response.body.parameters.retry_after * 1000;
+    let delay = 5000; // Базовая задержка
+    if (
+      error &&
+      error.response &&
+      error.response.body &&
+      error.response.body.parameters?.retry_after
+    ) {
+      delay = error.response.body.parameters.retry_after * 1000;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delay));
   }
-  await new Promise(resolve => setTimeout(resolve, delay));
-}
 
   try {
     const { data: members, error: membersError } = await supabase
@@ -496,10 +501,14 @@ async function checkAllMembers() {
         try {
           await delayIfNeeded(); // Ensure 5-second delay between bot calls
 
-          const chatMember = await bot.getChatMember(group.id, member.telegram_id);
+          const chatMember = await bot.getChatMember(
+            group.id,
+            member.telegram_id
+          );
 
           // Skip if user is an admin or the bot itself
-          if (["administrator", "creator"].includes(chatMember.status)) continue;
+          if (["administrator", "creator"].includes(chatMember.status))
+            continue;
 
           // Remove users who are not in the database
           if (!dbUserIds.has(member.telegram_id)) {
@@ -534,7 +543,11 @@ async function checkAllMembers() {
             }, 1000);
           }
 
-          if (!subscription || new Date(subscription.end_date) < new Date() || subscription.level == 1) {
+          if (
+            !subscription ||
+            new Date(subscription.end_date) < new Date() ||
+            subscription.level == 1
+          ) {
             await delayIfNeeded();
             await bot.banChatMember(group.id, member.telegram_id);
             setTimeout(async () => {
@@ -542,7 +555,6 @@ async function checkAllMembers() {
               await bot.unbanChatMember(group.id, member.telegram_id);
             }, 1000);
           }
-
         } catch (error) {
           console.error(
             `Ошибка при проверке участника с Telegram ID ${member.telegram_id} в ${group.name}:`,
@@ -648,15 +660,19 @@ const prices = {
   },
 };
 
-const lavaApiKey = "zhPc9BG8Jl1LieEhNPTCEYHpf8oAyQ6wlFKkc9MY6wTcTA2lufAAL9mQ9028p3bQ";
+const lavaApiKey =
+  "zhPc9BG8Jl1LieEhNPTCEYHpf8oAyQ6wlFKkc9MY6wTcTA2lufAAL9mQ9028p3bQ";
 
 async function createLavaPaymentLink(userId, level, duration) {
   const url = "https://gate.lava.top/api/v2/invoice";
   console.log(userId, level, duration);
-  
+
   const payload = {
     email: `${userId}a@${level}a${duration}.com`,
-    offerId: level === 1 ? "372513dc-bce2-4ca2-a66a-50eb8c98073f" : "1ce09007-fb90-4dd6-a434-2033eeccb32c",
+    offerId:
+      level === 1
+        ? "372513dc-bce2-4ca2-a66a-50eb8c98073f"
+        : "1ce09007-fb90-4dd6-a434-2033eeccb32c",
     currency: "RUB",
     apiKey: lavaApiKey,
   };
@@ -675,8 +691,6 @@ async function createLavaPaymentLink(userId, level, duration) {
     throw error;
   }
 }
-
-
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
@@ -698,13 +712,12 @@ bot.onText(/\/start/, async (msg) => {
         last_name: msg.chat.last_name,
       },
     ]);
-
   }
   let { data: user2, error: userError2 } = await supabase
-  .from("usersa")
-  .select("id")
-  .eq("telegram_id", chatId)
-  .single();
+    .from("usersa")
+    .select("id")
+    .eq("telegram_id", chatId)
+    .single();
   user = user2;
 
   // Fetch the user's subscription status
@@ -755,70 +768,65 @@ bot.onText(/\/start/, async (msg) => {
   if (subscription && new Date(subscription.end_date) >= new Date()) {
     // Function to check if a user is an administrator
     async function isUserAdmin(chatId, userId) {
-        try {
-            const admins = await bot.getChatAdministrators(chatId);
-            return admins.some(admin => admin.user.id === userId);
-        } catch (error) {
-            console.error("Error checking admin status:", error);
-            return false;
-        }
+      try {
+        const admins = await bot.getChatAdministrators(chatId);
+        return admins.some((admin) => admin.user.id === userId);
+      } catch (error) {
+        console.error("Error checking admin status:", error);
+        return false;
+      }
     }
 
     const userIsAdmin = await isUserAdmin(-1002306021477, chatId);
     const userIsAdminc = await isUserAdmin(-1002306021477, chatId);
     if (subscription.level === 1 && !userIsAdmin) {
-        await bot.unbanChatMember(-1002306021477, chatId);
-        const channelLink = await bot.createChatInviteLink(
-            -1002306021477,
-            {
-                name: "Channel_Invite",
-                expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
-            }
-        );
-        inlineKeyboard.push([
-            {
-                text: "Ссылка на закрытый канал",
-                url: channelLink.invite_link,
-            },
-        ]);
+      await bot.unbanChatMember(-1002306021477, chatId);
+      const channelLink = await bot.createChatInviteLink(-1002306021477, {
+        name: "Channel_Invite",
+        expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+      });
+      inlineKeyboard.push([
+        {
+          text: "Ссылка на закрытый канал",
+          url: channelLink.invite_link,
+        },
+      ]);
     } else if (subscription.level === 2) {
       if (!userIsAdmin) await bot.unbanChatMember(-1002306021477, chatId);
-        if(!userIsAdminc) await bot.unbanChatMember(-1002451832857, chatId);
-        const channelLink = await bot.createChatInviteLink(
-            -1002306021477,
-            {
-                name: "Channel_Invite",
-                expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
-            }
-        );
-        const chatLink = await bot.createChatInviteLink(
-            -1002451832857,
-            {
-                name: "Chat_Invite",
-                expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
-            }
-        );
-        inlineKeyboard.push([
-            {
-                text: "Ссылка на закрытый канал",
-                url: channelLink.invite_link,
-            },
-            {
-                text: "Ссылка на закрытый чат",
-                url: chatLink.invite_link,
-            },
-        ]);
+      if (!userIsAdminc) await bot.unbanChatMember(-1002451832857, chatId);
+      const channelLink = await bot.createChatInviteLink(-1002306021477, {
+        name: "Channel_Invite",
+        expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+      });
+      const chatLink = await bot.createChatInviteLink(-1002451832857, {
+        name: "Chat_Invite",
+        expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+      });
+      inlineKeyboard.push([
+        {
+          text: "Ссылка на закрытый канал",
+          url: channelLink.invite_link,
+        },
+        {
+          text: "Ссылка на закрытый чат",
+          url: chatLink.invite_link,
+        },
+      ]);
     }
-}
+  }
 
   // Send the start message
   try {
-    const message = await bot.sendVideo(chatId, "https://v.mover.uz/hC8FBeYZ_h.mp4", {
-      caption: messageText,
-      reply_markup: {
-        inline_keyboard: inlineKeyboard,
-      },
-    });
+    const message = await bot.sendVideo(
+      chatId,
+      "https://v.mover.uz/hC8FBeYZ_h.mp4",
+      {
+        caption: messageText,
+        reply_markup: {
+          inline_keyboard: inlineKeyboard,
+        },
+      }
+    );
 
     bot.userData[chatId] = { messageId: message.message_id };
   } catch (error) {
@@ -852,7 +860,12 @@ bot.on("callback_query", async (query) => {
             inline_keyboard: [
               [{ text: "Согласен", callback_data: `agree_${level}` }],
               [{ text: "Не согласен", callback_data: "disagree" }],
-              [{ text: "Выберите способ оплаты", callback_data: `payment_method_${level}` }],
+              [
+                {
+                  text: "Выберите способ оплаты",
+                  callback_data: `payment_method_${level}`,
+                },
+              ],
             ],
           },
         }
@@ -1137,19 +1150,20 @@ bot.on("callback_query", async (query) => {
       const level = data.split("_")[2];
 
       // Show the payment method selection
-      const message = await bot.sendMessage(
-        chatId,
-        "Выберите способ оплаты:",
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
-              [{ text: "Иностранные карты", callback_data: `foreign_cards_${level}` }],
-              [{ text: "Назад", callback_data: `level_${level}` }],
+      const message = await bot.sendMessage(chatId, "Выберите способ оплаты:", {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
+            [
+              {
+                text: "Иностранные карты",
+                callback_data: `foreign_cards_${level}`,
+              },
             ],
-          },
-        }
-      );
+            [{ text: "Назад", callback_data: `level_${level}` }],
+          ],
+        },
+      });
       bot.userData[chatId].messageId = message.message_id;
     } else if (data.startsWith("russian_cards_")) {
       const level = data.split("_")[2];
@@ -1193,7 +1207,7 @@ bot.on("callback_query", async (query) => {
       bot.userData[chatId].messageId = message.message_id;
     } else if (data.startsWith("foreign_cards_")) {
       const level = data.split("_")[2];
-      
+
       // Generate payment link using Lava.top API
       const paymentLink = await createLavaPaymentLink(chatId, level, 1);
 
@@ -1541,7 +1555,7 @@ bot.on("callback_query", async (query) => {
             if (confirmation.success) {
               clearInterval(checkPaymentInterval);
               const expireDate =
-              Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+                Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
               if (level === "1") {
                 const channelLink = await bot.createChatInviteLink(
                   -1002306021477,
@@ -1555,9 +1569,7 @@ bot.on("callback_query", async (query) => {
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}`
                 );
-
               } else if (level === "2") {
-
                 const channelLink = await bot.createChatInviteLink(
                   -1002306021477,
                   {
@@ -1633,10 +1645,7 @@ async function confirmPayment(
   const tokenString = `${tinkoffPassword}${paymentId}${tinkoffTerminalKey}`;
 
   // Generate the token
-  payload.Token = crypto
-    .createHash("sha256")
-    .update(tokenString)
-    .digest("hex");
+  payload.Token = crypto.createHash("sha256").update(tokenString).digest("hex");
 
   try {
     const response = await axios.post(url, payload, {
@@ -1775,22 +1784,22 @@ app.post("/webhook/lava", async (req, res) => {
   console.log("Webhook event data:", event);
   if (event.eventType === "payment.success") {
     function extractDetails(email) {
-      const [userId, rest] = email.split('a@');
-      const [level, durationWithDomain] = rest.split('a');
-      const duration = durationWithDomain.split('.com')[0]; // Remove '.com'
-      
+      const [userId, rest] = email.split("a@");
+      const [level, durationWithDomain] = rest.split("a");
+      const duration = durationWithDomain.split(".com")[0]; // Remove '.com'
+
       return {
-          userId: Number(userId),
-          level: Number(level),
-          duration: Number(duration)
+        userId: Number(userId),
+        level: Number(level),
+        duration: Number(duration),
       };
-  }
-    const { userId, level, duration }  = extractDetails(event.buyer.email)
-    const {data: user, error: usererror} = await supabase
-     .from("usersa")
-     .select("*")
-     .eq("telegram_id", userId)
-     .single();
+    }
+    const { userId, level, duration } = extractDetails(event.buyer.email);
+    const { data: user, error: usererror } = await supabase
+      .from("usersa")
+      .select("*")
+      .eq("telegram_id", userId)
+      .single();
     // Update the subscription status in your database
     const { data: subscription, error: fetchError } = await supabase
       .from("subscriptions")
@@ -1832,6 +1841,43 @@ app.post("/webhook/lava", async (req, res) => {
     }
 
     res.status(200).send("Webhook received and processed");
+    const expireDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+    if (level == "1") {
+      const channelLink = await bot.createChatInviteLink(-1002306021477, {
+        name: "Channel_Invite",
+        expire_date: expireDate,
+      });
+
+      bot.sendMessage(
+        chatId,
+        `Ссылка на закрытый канал: ${channelLink.invite_link}`
+      );
+    } else if (level == "2") {
+      const channelLink = await bot.createChatInviteLink(-1002306021477, {
+        name: "Channel_Invite",
+        expire_date: expireDate,
+      });
+      const chatLink = await bot.createChatInviteLink(-1002451832857, {
+        name: "Chat_Invite",
+        expire_date: expireDate,
+      });
+      bot.sendMessage(
+        chatId,
+        `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
+      );
+    }
+
+    const message = await bot.sendMessage(
+      chatId,
+      "Оплата подтверждена! Ваша подписка активирована.",
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
+        },
+      }
+    );
+
+    bot.userData[chatId].messageId = message.message_id;
   } else {
     res.status(200).send("Webhook received, but not processed");
   }
