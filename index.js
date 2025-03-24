@@ -1800,20 +1800,20 @@ async function confirmPayment(
     throw error;
   }
 }
-const prices = {
-  level_1: {
-    1: 1490,
-    3: 3990,
-    6: 7490,
-    12: 14290,
-  },
-  level_2: {
-    1: 4990,
-    3: 13390,
-    6: 25390,
-    12: 47890,
-  },
-};
+// const prices = {
+//   level_1: {
+//     1: 1490,
+//     3: 3990,
+//     6: 7490,
+//     12: 14290,
+//   },
+//   level_2: {
+//     1: 4990,
+//     3: 13390,
+//     6: 25390,
+//     12: 47890,
+//   },
+// };
 function calculateAmount(level, duration) {
   const prices = {
     level_1: {
