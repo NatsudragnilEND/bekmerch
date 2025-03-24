@@ -1623,7 +1623,8 @@ bot.on("callback_query", async (query) => {
               if (subscription) {
                 newEndDate = new Date(subscription.end_date);
               }
-              newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
+              newEndDate.setMonth(newEndDate.getMonth() + duration);
+
 
               if (fetchError) {
                 const { error: insertError } = await supabase
