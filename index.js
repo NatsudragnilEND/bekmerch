@@ -652,7 +652,8 @@ const lavaApiKey = "zhPc9BG8Jl1LieEhNPTCEYHpf8oAyQ6wlFKkc9MY6wTcTA2lufAAL9mQ9028
 
 async function createLavaPaymentLink(userId, level, duration) {
   const url = "https://gate.lava.top/api/v2/invoice";
-
+  console.log(userId, level, duration);
+  
   const payload = {
     email: `${userId}a@${level}a${duration}.com`,
     offerId: level === 1 ? "372513dc-bce2-4ca2-a66a-50eb8c98073f" : "1ce09007-fb90-4dd6-a434-2033eeccb32c",
@@ -1192,9 +1193,9 @@ bot.on("callback_query", async (query) => {
       bot.userData[chatId].messageId = message.message_id;
     } else if (data.startsWith("foreign_cards_")) {
       const level = data.split("_")[2];
-
+      
       // Generate payment link using Lava.top API
-      const paymentLink = await createLavaPaymentLink(level);
+      const paymentLink = await createLavaPaymentLink(chatId, level, 1);
 
       const message = await bot.sendMessage(
         chatId,
@@ -1785,11 +1786,16 @@ app.post("/webhook/lava", async (req, res) => {
       };
   }
     const { userId, level, duration }  = extractDetails(event.buyer.email)
+    const {data: user, error: usererror} = await supabase
+     .from("usersa")
+     .select("*")
+     .eq("telegram_id", userId)
+     .single();
     // Update the subscription status in your database
     const { data: subscription, error: fetchError } = await supabase
       .from("subscriptions")
       .select("*")
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .eq("level", level)
       .order("end_date", { ascending: false })
       .limit(1)
@@ -1806,7 +1812,7 @@ app.post("/webhook/lava", async (req, res) => {
         .from("subscriptions")
         .insert([
           {
-            user_id: userId,
+            user_id: user.id,
             level: level,
             start_date: new Date(),
             end_date: newEndDate,
