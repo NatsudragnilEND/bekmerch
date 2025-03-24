@@ -650,7 +650,7 @@ const prices = {
 
 const lavaApiKey = "zhPc9BG8Jl1LieEhNPTCEYHpf8oAyQ6wlFKkc9MY6wTcTA2lufAAL9mQ9028p3bQ";
 
-async function createLavaPaymentLink(level) {
+async function createLavaPaymentLink(userId, level, duration) {
   const url = "https://gate.lava.top/api/v2/invoice";
 
   const payload = {
@@ -660,13 +660,16 @@ async function createLavaPaymentLink(level) {
       : "1ce09007-fb90-4dd6-a434-2033eeccb32c",
     currency: "RUB",
     apiKey: lavaApiKey,
+    userId: userId,
+    level: level,
+    duration: duration,
   };
 
   try {
     const response = await axios.post(url, payload, {
       headers: {
         "Content-Type": "application/json",
-        "X-Api-Key": `${lavaApiKey}`,
+       "X-Api-Key": `${lavaApiKey}`,
       },
     });
 
@@ -676,6 +679,7 @@ async function createLavaPaymentLink(level) {
     throw error;
   }
 }
+
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
