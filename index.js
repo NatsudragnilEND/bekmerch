@@ -627,7 +627,7 @@ schedule.scheduleJob("0 0 * * *", async () => {
 });
 
 // Периодическая проверка участников группы
-schedule.scheduleJob("*/5 * * * * *", async () => {
+schedule.scheduleJob("*/5 * * * *", async () => {
   await checkAllMembers();
 });
 checkAllMembers();
@@ -647,6 +647,35 @@ const prices = {
     12: 47890,
   },
 };
+
+const lavaApiKey = "zhPc9BG8Jl1LieEhNPTCEYHpf8oAyQ6wlFKkc9MY6wTcTA2lufAAL9mQ9028p3bQ";
+
+async function createLavaPaymentLink(level) {
+  const url = "https://gate.lava.top/api/v2/invoice";
+
+  const payload = {
+    email: "customer@example.com", // Replace with the actual customer email if available
+    offerId: level === 1
+      ? "372513dc-bce2-4ca2-a66a-50eb8c98073f"
+      : "1ce09007-fb90-4dd6-a434-2033eeccb32c",
+    currency: "RUB",
+    apiKey: lavaApiKey,
+  };
+
+  try {
+    const response = await axios.post(url, payload, {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Key": `${lavaApiKey}`,
+      },
+    });
+
+    return response.data.paymentUrl;
+  } catch (error) {
+    console.error("Error creating Lava.top payment link:", error);
+    throw error;
+  }
+}
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
@@ -869,7 +898,7 @@ bot.on("callback_query", async (query) => {
             // User already has the selected subscription level
             const message = await bot.sendMessage(
               chatId,
-              `У вас уже есть подписка на Уровень ${level}, которая истекает ${expiryDate}.\n\nВыберите срок продления:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+              `У вас уже есть подписка на Уровень ${level}, которая истекает ${expiryDate}.\n\nВыберите срок продления:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
               {
                 reply_markup: {
                   inline_keyboard: [
@@ -907,7 +936,7 @@ bot.on("callback_query", async (query) => {
             // User has the highest subscription level
             const message = await bot.sendMessage(
               chatId,
-              `У вас уже есть подписка на Уровень 2, которая включает все уровни и истекает ${expiryDate}.\n\nВыберите срок продления:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+              `У вас уже есть подписка на Уровень 2, которая включает все уровни и истекает ${expiryDate}.\n\nВыберите срок продления:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
               {
                 reply_markup: {
                   inline_keyboard: [
@@ -945,7 +974,7 @@ bot.on("callback_query", async (query) => {
             // User has a lower subscription level, allow upgrade
             const message = await bot.sendMessage(
               chatId,
-              `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+              `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
               {
                 reply_markup: {
                   inline_keyboard: [
@@ -984,7 +1013,7 @@ bot.on("callback_query", async (query) => {
           // User does not have an active subscription, allow subscription
           const message = await bot.sendMessage(
             chatId,
-            `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+            `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
             {
               reply_markup: {
                 inline_keyboard: [
@@ -1023,7 +1052,7 @@ bot.on("callback_query", async (query) => {
         // User is new and not in the database
         const message = await bot.sendMessage(
           chatId,
-          `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+          `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
           {
             reply_markup: {
               inline_keyboard: [
@@ -1127,7 +1156,7 @@ bot.on("callback_query", async (query) => {
       // Show the duration selection for Russian cards
       const message = await bot.sendMessage(
         chatId,
-        `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+        `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
         {
           reply_markup: {
             inline_keyboard: [
@@ -1164,10 +1193,8 @@ bot.on("callback_query", async (query) => {
     } else if (data.startsWith("foreign_cards_")) {
       const level = data.split("_")[2];
 
-      // Provide the payment link for foreign cards
-      const paymentLink = level === "1"
-        ? "https://app.lava.top/baguvix?subscriptionOfferId=372513dc-bce2-4ca2-a66a-50eb8c98073f"
-        : "https://app.lava.top/baguvix?subscriptionOfferId=1ce09007-fb90-4dd6-a434-2033eeccb32c";
+      // Generate payment link using Lava.top API
+      const paymentLink = await createLavaPaymentLink(level);
 
       const message = await bot.sendMessage(
         chatId,
@@ -1605,7 +1632,10 @@ async function confirmPayment(
   const tokenString = `${tinkoffPassword}${paymentId}${tinkoffTerminalKey}`;
 
   // Generate the token
-  payload.Token = crypto.createHash("sha256").update(tokenString).digest("hex");
+  payload.Token = crypto
+    .createHash("sha256")
+    .update(tokenString)
+    .digest("hex");
 
   try {
     const response = await axios.post(url, payload, {
@@ -1675,10 +1705,7 @@ async function confirmPayment(
                 auto_renew: true, // Assuming auto-renew is enabled by default
               },
             ]);
-        }
-
-        if (subscription) {
-          // Extend existing subscription
+        } else {
           const { error: updateError } = await supabase
             .from("subscriptions")
             .update({ end_date: newEndDate })
@@ -1687,24 +1714,6 @@ async function confirmPayment(
           if (updateError) {
             console.error("Error updating subscription:", updateError);
             throw new Error("Error updating subscription");
-          }
-        } else {
-          // Create new subscription
-          const { error: insertError } = await supabase
-            .from("subscriptions")
-            .insert([
-              {
-                user_id: userId,
-                level: level,
-                start_date: new Date(),
-                end_date: newEndDate,
-                auto_renew: true, // Assuming auto-renew is enabled by default
-              },
-            ]);
-
-          if (insertError) {
-            console.error("Error inserting subscription:", insertError);
-            throw new Error("Error inserting subscription");
           }
         }
         break;
@@ -1759,70 +1768,57 @@ function calculateAmount(level, duration) {
 
 // Webhook endpoint for Lava.top payment confirmation
 app.post("/webhook/lava", async (req, res) => {
-  console.log(req.body);
-  
-  const { data, error } = await supabase
-    .from("subscriptions")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("level", level)
-    .order("end_date", { ascending: false })
-    .limit(1)
-    .single();
+  const event = req.body;
 
-  let newEndDate = new Date();
-  if (subscription) {
-    newEndDate = new Date(subscription.end_date);
-  }
-  newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
-  if (fetchError) {
-    const { error: insertError } = await supabase
+  // Log the webhook data
+  console.log("Webhook event data:", event);
+
+  // Verify the event (ensure it's from Lava.top and valid)
+  if (event.eventType === "payment.success") {
+    const { userId, level, duration } = event.data;
+
+    // Update the subscription status in your database
+    const { data: subscription, error: fetchError } = await supabase
       .from("subscriptions")
-      .insert([
-        {
-          user_id: userId,
-          level: level,
-          start_date: new Date(),
-          end_date: newEndDate,
-          auto_renew: true, // Assuming auto-renew is enabled by default
-        },
-      ]);
-  }
+      .select("*")
+      .eq("user_id", userId)
+      .eq("level", level)
+      .order("end_date", { ascending: false })
+      .limit(1)
+      .single();
 
-  if (subscription) {
-    // Extend existing subscription
-    const { error: updateError } = await supabase
-      .from("subscriptions")
-      .update({ end_date: newEndDate })
-      .eq("id", subscription.id);
-
-    if (updateError) {
-      console.error("Error updating subscription:", updateError);
-      throw new Error("Error updating subscription");
+    let newEndDate = new Date();
+    if (subscription) {
+      newEndDate = new Date(subscription.end_date);
     }
+    newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
+
+    if (fetchError) {
+      const { error: insertError } = await supabase
+        .from("subscriptions")
+        .insert([
+          {
+            user_id: userId,
+            level: level,
+            start_date: new Date(),
+            end_date: newEndDate,
+            auto_renew: true,
+          },
+        ]);
+    } else {
+      const { error: updateError } = await supabase
+        .from("subscriptions")
+        .update({ end_date: newEndDate })
+        .eq("id", subscription.id);
+
+      if (updateError) {
+        console.error("Error updating subscription:", updateError);
+        return res.status(500).send("Error updating subscription");
+      }
+    }
+
+    res.status(200).send("Webhook received and processed");
   } else {
-    // Create new subscription
-    const { error: insertError } = await supabase
-      .from("subscriptions")
-      .insert([
-        {
-          user_id: userId,
-          level: level,
-          start_date: new Date(),
-          end_date: newEndDate,
-          auto_renew: true, // Assuming auto-renew is enabled by default
-        },
-      ]);
-
-    if (insertError) {
-      console.error("Error inserting subscription:", insertError);
-      throw new Error("Error inserting subscription");
-    }
+    res.status(200).send("Webhook received, but not processed");
   }
-
-  // Log the webhook status body and data
-  console.log("Webhook status body:", req.body);
-  console.log("Webhook status data:", req.data);
-
-  res.status(200).send("Webhook received");
 });
