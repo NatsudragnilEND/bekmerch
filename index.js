@@ -654,7 +654,7 @@ async function createLavaPaymentLink(userId, level, duration) {
   const url = "https://gate.lava.top/api/v2/invoice";
 
   const payload = {
-    email: `${userId}, ${level}, ${duration}`,
+    email: `${userId}a@${level}a${duration}.com`,
     offerId: level === 1 ? "372513dc-bce2-4ca2-a66a-50eb8c98073f" : "1ce09007-fb90-4dd6-a434-2033eeccb32c",
     currency: "RUB",
     apiKey: lavaApiKey,
@@ -1772,11 +1772,19 @@ app.post("/webhook/lava", async (req, res) => {
 
   // Log the webhook data
   console.log("Webhook event data:", event);
-
-  // Verify the event (ensure it's from Lava.top and valid)
   if (event.eventType === "payment.success") {
-    const [userId, level, duration] = event.buyer.email.split(',').map(item => item.trim());
-
+    function extractDetails(email) {
+      const [userId, rest] = email.split('a@');
+      const [level, durationWithDomain] = rest.split('a');
+      const duration = durationWithDomain.split('.com')[0]; // Remove '.com'
+      
+      return {
+          userId: Number(userId),
+          level: Number(level),
+          duration: Number(duration)
+      };
+  }
+    const { userId, level, duration }  = extractDetails(event.buyer.email)
     // Update the subscription status in your database
     const { data: subscription, error: fetchError } = await supabase
       .from("subscriptions")
