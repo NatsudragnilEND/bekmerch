@@ -1751,6 +1751,7 @@ app.post("/webhook/lava", async (req, res) => {
 
   // Log the webhook data
   console.log("Webhook event data:", event);
+
   if (event.eventType === "payment.success") {
     function extractDetails(email) {
       const [userId, rest] = email.split("a@");
@@ -1763,51 +1764,17 @@ app.post("/webhook/lava", async (req, res) => {
         duration: Number(duration),
       };
     }
+
     const { userId, level, duration } = extractDetails(event.buyer.email);
     const expireDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-    if (level == "1") {
-      const channelLink = await bot.createChatInviteLink(-1002306021477, {
-        name: "Channel_Invite",
-        expire_date: expireDate,
-      });
 
-      bot.sendMessage(
-        userId,
-        `Ссылка на закрытый канал: ${channelLink.invite_link}`
-      );
-    } else if (level == "2") {
-      const channelLink = await bot.createChatInviteLink(-1002306021477, {
-        name: "Channel_Invite",
-        expire_date: expireDate,
-      });
-      const chatLink = await bot.createChatInviteLink(-1002451832857, {
-        name: "Chat_Invite",
-        expire_date: expireDate,
-      });
-      bot.sendMessage(
-        userId,
-        `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
-      );
-    }
-
-    const message = await bot.sendMessage(
-      userId,
-      "Оплата подтверждена! Ваша подписка активирована.",
-      {
-        reply_markup: {
-          inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
-        },
-      }
-    );
-
-    bot.userData[userId].messageId = message.message_id;
-
+    // Check if the user has already received an invite link for the current level
     const { data: user, error: usererror } = await supabase
       .from("usersa")
       .select("*")
       .eq("telegram_id", userId)
       .single();
-    // Update the subscription status in your database
+
     const { data: subscription, error: fetchError } = await supabase
       .from("subscriptions")
       .select("*")
@@ -1816,6 +1783,53 @@ app.post("/webhook/lava", async (req, res) => {
       .order("end_date", { ascending: false })
       .limit(1)
       .single();
+
+    if (subscription && subscription.invite_sent) {
+      // If invite link was already sent, skip sending it again
+      console.log("Invite link already sent for this subscription level.");
+    } else {
+      // Send invite links based on the level
+      if (level == 1) {
+        const channelLink = await bot.createChatInviteLink(-1002306021477, {
+          name: "Channel_Invite",
+          expire_date: expireDate,
+        });
+
+        await bot.sendMessage(
+          userId,
+          `Ссылка на закрытый канал: ${channelLink.invite_link}`
+        );
+      } else if (level == 2) {
+        const channelLink = await bot.createChatInviteLink(-1002306021477, {
+          name: "Channel_Invite",
+          expire_date: expireDate,
+        });
+        const chatLink = await bot.createChatInviteLink(-1002451832857, {
+          name: "Chat_Invite",
+          expire_date: expireDate,
+        });
+        await bot.sendMessage(
+          userId,
+          `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
+        );
+      }
+
+      // Update the subscription to mark invite as sent
+      const { error: updateError } = await supabase
+        .from("subscriptions")
+        .update({ invite_sent: true })
+        .eq("id", subscription ? subscription.id : null);
+
+      if (updateError) {
+        console.error("Error updating subscription invite status:", updateError);
+        return res.status(500).send("Error updating subscription invite status");
+      }
+    }
+
+    const message = await bot.sendMessage(
+      userId,
+      "Оплата подтверждена! Ваша подписка активирована.\n Главное меню: /start"
+    );
 
     let newEndDate = new Date();
     if (subscription) {
@@ -1852,3 +1866,4 @@ app.post("/webhook/lava", async (req, res) => {
     res.status(200).send("Webhook received, but not processed");
   }
 });
+
