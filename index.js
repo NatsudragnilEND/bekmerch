@@ -1768,13 +1768,19 @@ app.post("/webhook/lava", async (req, res) => {
     const { userId, level, duration } = extractDetails(event.buyer.email);
     const expireDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
 
-    // Check if the user has already received an invite link for the current level
+    // Fetch user details
     const { data: user, error: usererror } = await supabase
       .from("usersa")
       .select("*")
       .eq("telegram_id", userId)
       .single();
 
+    if (usererror) {
+      console.error("Error fetching user:", usererror);
+      return res.status(500).send("Error fetching user");
+    }
+
+    // Fetch existing subscription
     const { data: subscription, error: fetchError } = await supabase
       .from("subscriptions")
       .select("*")
@@ -1784,6 +1790,18 @@ app.post("/webhook/lava", async (req, res) => {
       .limit(1)
       .single();
 
+    if (fetchError) {
+      console.error("Error fetching subscription:", fetchError);
+      return res.status(500).send("Error fetching subscription");
+    }
+
+    let newEndDate = new Date();
+    if (subscription) {
+      newEndDate = new Date(subscription.end_date);
+    }
+    newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
+
+    // Check if the user has already received an invite link for the current level
     if (subscription && subscription.invite_sent) {
       // If invite link was already sent, skip sending it again
       console.log("Invite link already sent for this subscription level.");
@@ -1815,41 +1833,19 @@ app.post("/webhook/lava", async (req, res) => {
       }
 
       // Update the subscription to mark invite as sent
-      const { error: updateError } = await supabase
+      const { error: updateInviteError } = await supabase
         .from("subscriptions")
         .update({ invite_sent: true })
         .eq("id", subscription ? subscription.id : null);
 
-      if (updateError) {
-        console.error("Error updating subscription invite status:", updateError);
+      if (updateInviteError) {
+        console.error("Error updating subscription invite status:", updateInviteError);
         return res.status(500).send("Error updating subscription invite status");
       }
     }
 
-    const message = await bot.sendMessage(
-      userId,
-      "Оплата подтверждена! Ваша подписка активирована.\n Главное меню: /start"
-    );
-
-    let newEndDate = new Date();
+    // Update or insert subscription
     if (subscription) {
-      newEndDate = new Date(subscription.end_date);
-    }
-    newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
-
-    if (fetchError) {
-      const { error: insertError } = await supabase
-        .from("subscriptions")
-        .insert([
-          {
-            user_id: user.id,
-            level: level,
-            start_date: new Date(),
-            end_date: newEndDate,
-            auto_renew: true,
-          },
-        ]);
-    } else {
       const { error: updateError } = await supabase
         .from("subscriptions")
         .update({ end_date: newEndDate })
@@ -1859,11 +1855,35 @@ app.post("/webhook/lava", async (req, res) => {
         console.error("Error updating subscription:", updateError);
         return res.status(500).send("Error updating subscription");
       }
+    } else {
+      const { error: insertError } = await supabase
+        .from("subscriptions")
+        .insert([
+          {
+            user_id: user.id,
+            level: level,
+            start_date: new Date(),
+            end_date: newEndDate,
+            auto_renew: true,
+            invite_sent: true,
+          },
+        ]);
+
+      if (insertError) {
+        console.error("Error inserting subscription:", insertError);
+        return res.status(500).send("Error inserting subscription");
+      }
     }
+
+    const message = await bot.sendMessage(
+      userId,
+      "Оплата подтверждена! Ваша подписка активирована.\n Главное меню: /start"
+    );
 
     res.status(200).send("Webhook received and processed");
   } else {
     res.status(200).send("Webhook received, but not processed");
   }
 });
+
 
