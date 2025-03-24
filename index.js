@@ -670,7 +670,7 @@ async function createLavaPaymentLink(userId, level, duration) {
   const payload = {
     email: `${userId}a@${level}a${duration}.com`,
     offerId:
-      level === 1
+      level == 1
         ? "372513dc-bce2-4ca2-a66a-50eb8c98073f"
         : "1ce09007-fb90-4dd6-a434-2033eeccb32c",
     currency: "RUB",
@@ -860,12 +860,6 @@ bot.on("callback_query", async (query) => {
             inline_keyboard: [
               [{ text: "Согласен", callback_data: `agree_${level}` }],
               [{ text: "Не согласен", callback_data: "disagree" }],
-              [
-                {
-                  text: "Выберите способ оплаты",
-                  callback_data: `payment_method_${level}`,
-                },
-              ],
             ],
           },
         }
@@ -988,35 +982,18 @@ bot.on("callback_query", async (query) => {
             // User has a lower subscription level, allow upgrade
             const message = await bot.sendMessage(
               chatId,
-              `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+              `Выберите способ оплаты:`,
               {
                 reply_markup: {
                   inline_keyboard: [
+                    [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
                     [
                       {
-                        text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
-                        callback_data: `duration_1_${level}`,
+                        text: "Иностранные карты",
+                        callback_data: `foreign_cards_${level}`,
                       },
                     ],
-                    [
-                      {
-                        text: `3 месяца - ${prices[`level_${level}`][3]} руб`,
-                        callback_data: `duration_3_${level}`,
-                      },
-                    ],
-                    [
-                      {
-                        text: `6 месяцев - ${prices[`level_${level}`][6]} руб`,
-                        callback_data: `duration_6_${level}`,
-                      },
-                    ],
-                    [
-                      {
-                        text: `1 год - ${prices[`level_${level}`][12]} руб`,
-                        callback_data: `duration_12_${level}`,
-                      },
-                    ],
-                    [{ text: "Назад", callback_data: "back_to_main" }],
+                    [{ text: "Назад", callback_data: `level_${level}` }],
                   ],
                 },
               }
@@ -1027,35 +1004,18 @@ bot.on("callback_query", async (query) => {
           // User does not have an active subscription, allow subscription
           const message = await bot.sendMessage(
             chatId,
-            `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+            `Выберите способ оплаты:`,
             {
               reply_markup: {
                 inline_keyboard: [
+                  [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
                   [
                     {
-                      text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
-                      callback_data: `duration_1_${level}`,
+                      text: "Иностранные карты",
+                      callback_data: `foreign_cards_${level}`,
                     },
                   ],
-                  [
-                    {
-                      text: `3 месяца - ${prices[`level_${level}`][3]} руб`,
-                      callback_data: `duration_3_${level}`,
-                    },
-                  ],
-                  [
-                    {
-                      text: `6 месяцев - ${prices[`level_${level}`][6]} руб`,
-                      callback_data: `duration_6_${level}`,
-                    },
-                  ],
-                  [
-                    {
-                      text: `1 год - ${prices[`level_${level}`][12]} руб`,
-                      callback_data: `duration_12_${level}`,
-                    },
-                  ],
-                  [{ text: "Назад", callback_data: "back_to_main" }],
+                  [{ text: "Назад", callback_data: `level_${level}` }],
                 ],
               },
             }
@@ -1066,35 +1026,18 @@ bot.on("callback_query", async (query) => {
         // User is new and not in the database
         const message = await bot.sendMessage(
           chatId,
-          `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
+          `Выберите способ оплаты:`,
           {
             reply_markup: {
               inline_keyboard: [
+                [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
                 [
                   {
-                    text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
-                    callback_data: `duration_1_${level}`,
+                    text: "Иностранные карты",
+                    callback_data: `foreign_cards_${level}`,
                   },
                 ],
-                [
-                  {
-                    text: `3 месяца - ${prices[`level_${level}`][3]} руб`,
-                    callback_data: `duration_3_${level}`,
-                  },
-                ],
-                [
-                  {
-                    text: `6 месяцев - ${prices[`level_${level}`][6]} руб`,
-                    callback_data: `duration_6_${level}`,
-                  },
-                ],
-                [
-                  {
-                    text: `1 год - ${prices[`level_${level}`][12]} руб`,
-                    callback_data: `duration_12_${level}`,
-                  },
-                ],
-                [{ text: "Назад", callback_data: "back_to_main" }],
+                [{ text: "Назад", callback_data: `level_${level}` }],
               ],
             },
           }
@@ -1146,25 +1089,6 @@ bot.on("callback_query", async (query) => {
         }
       );
       bot.userData[chatId].messageId = message.message_id;
-    } else if (data.startsWith("payment_method_")) {
-      const level = data.split("_")[2];
-
-      // Show the payment method selection
-      const message = await bot.sendMessage(chatId, "Выберите способ оплаты:", {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
-            [
-              {
-                text: "Иностранные карты",
-                callback_data: `foreign_cards_${level}`,
-              },
-            ],
-            [{ text: "Назад", callback_data: `level_${level}` }],
-          ],
-        },
-      });
-      bot.userData[chatId].messageId = message.message_id;
     } else if (data.startsWith("russian_cards_")) {
       const level = data.split("_")[2];
 
@@ -1199,7 +1123,7 @@ bot.on("callback_query", async (query) => {
                   callback_data: `duration_12_${level}`,
                 },
               ],
-              [{ text: "Назад", callback_data: `payment_method_${level}` }],
+              [{ text: "Назад", callback_data: `agree_${level}` }],
             ],
           },
         }
@@ -1218,7 +1142,7 @@ bot.on("callback_query", async (query) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: "Оплатить", url: paymentLink }],
-              [{ text: "Назад", callback_data: `payment_method_${level}` }],
+              [{ text: "Назад", callback_data: `agree_${level}` }],
             ],
           },
         }
@@ -1252,7 +1176,7 @@ bot.on("callback_query", async (query) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: "Оплатить", callback_data: `pay_${level}_${duration}` }],
-              [{ text: "Назад", callback_data: `level_${level}` }],
+              [{ text: "Назад", callback_data: `russian_cards_${level}` }],
             ],
           },
         }
@@ -1393,20 +1317,7 @@ bot.on("callback_query", async (query) => {
         .limit(1)
         .single();
 
-      if (subscriptionError) {
-        // no subscription
-        const message = await bot.sendMessage(
-          chatId,
-          "У вас нет активной подписки. Подпишитесь на один из тарифов.",
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: "Назад", callback_data: "back_to_main" }],
-              ],
-            },
-          }
-        );
-      }
+      
 
       if (subscription && new Date(subscription.end_date) >= new Date()) {
         const expiryDate = new Date(subscription.end_date).toLocaleDateString();
@@ -1625,7 +1536,6 @@ bot.on("callback_query", async (query) => {
               }
               newEndDate.setMonth(newEndDate.getMonth() + duration);
 
-
               if (fetchError) {
                 const { error: insertError } = await supabase
                   .from("subscriptions")
@@ -1670,6 +1580,7 @@ bot.on("callback_query", async (query) => {
     console.error("Ошибка при обработке callback_query:", error);
   }
 });
+
 
 async function confirmPayment(
   paymentId,
