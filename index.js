@@ -639,7 +639,7 @@ schedule.scheduleJob("0 0 * * *", async () => {
 });
 
 // Периодическая проверка участников группы
-schedule.scheduleJob("*/5 * * * *", async () => {
+schedule.scheduleJob("*/1 * * * *", async () => {
   await checkAllMembers();
 });
 checkAllMembers();
