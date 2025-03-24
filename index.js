@@ -822,6 +822,7 @@ bot.on("callback_query", async (query) => {
             inline_keyboard: [
               [{ text: "Согласен", callback_data: `agree_${level}` }],
               [{ text: "Не согласен", callback_data: "disagree" }],
+              [{ text: "Выберите способ оплаты", callback_data: `payment_method_${level}` }],
             ],
           },
         }
@@ -1102,27 +1103,96 @@ bot.on("callback_query", async (query) => {
         }
       );
       bot.userData[chatId].messageId = message.message_id;
-    } else if (data.startsWith("extend_")) {
-      const [_, duration, level] = data.split("_");
+    } else if (data.startsWith("payment_method_")) {
+      const level = data.split("_")[2];
 
+      // Show the payment method selection
       const message = await bot.sendMessage(
         chatId,
-        `Продление подписки на Уровень ${level} на ${duration} месяц(ев).\n\nВыберите способ оплаты:`,
+        "Выберите способ оплаты:",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
+              [{ text: "Иностранные карты", callback_data: `foreign_cards_${level}` }],
+              [{ text: "Назад", callback_data: `level_${level}` }],
+            ],
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data.startsWith("russian_cards_")) {
+      const level = data.split("_")[2];
+
+      // Show the duration selection for Russian cards
+      const message = await bot.sendMessage(
+        chatId,
+        `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомься с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
         {
           reply_markup: {
             inline_keyboard: [
               [
                 {
-                  text: "Для карт РФ",
-                  callback_data: `pay_russian_${level}_${duration}`,
+                  text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
+                  callback_data: `duration_1_${level}`,
                 },
               ],
               [
                 {
-                  text: "Для иностранных карт",
-                  callback_data: `pay_foreign_${level}_${duration}`,
+                  text: `3 месяца - ${prices[`level_${level}`][3]} руб`,
+                  callback_data: `duration_3_${level}`,
                 },
               ],
+              [
+                {
+                  text: `6 месяцев - ${prices[`level_${level}`][6]} руб`,
+                  callback_data: `duration_6_${level}`,
+                },
+              ],
+              [
+                {
+                  text: `1 год - ${prices[`level_${level}`][12]} руб`,
+                  callback_data: `duration_12_${level}`,
+                },
+              ],
+              [{ text: "Назад", callback_data: `payment_method_${level}` }],
+            ],
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data.startsWith("foreign_cards_")) {
+      const level = data.split("_")[2];
+
+      // Provide the payment link for foreign cards
+      const paymentLink = level === "1"
+        ? "https://app.lava.top/baguvix?subscriptionOfferId=372513dc-bce2-4ca2-a66a-50eb8c98073f"
+        : "https://app.lava.top/baguvix?subscriptionOfferId=1ce09007-fb90-4dd6-a434-2033eeccb32c";
+
+      const message = await bot.sendMessage(
+        chatId,
+        `Оплатите подписку по ссылке:`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Оплатить", url: paymentLink }],
+              [{ text: "Назад", callback_data: `payment_method_${level}` }],
+            ],
+          },
+        }
+      );
+
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data.startsWith("extend_")) {
+      const [_, duration, level] = data.split("_");
+
+      const message = await bot.sendMessage(
+        chatId,
+        `Продление подписки на Уровень ${level} на ${duration} месяц(ев).\n\nДля оформления нажмите 'Оплатить'.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Оплатить", callback_data: `pay_${level}_${duration}` }],
               [{ text: "Назад", callback_data: `level_${level}` }],
             ],
           },
@@ -1135,22 +1205,11 @@ bot.on("callback_query", async (query) => {
 
       const message = await bot.sendMessage(
         chatId,
-        `Подписка на Уровень ${level} на ${duration} месяц(ев).\n\nВыберите способ оплаты:`,
+        `Подписка на Уровень ${level} на ${duration} месяц(ев).\n\nДля оформления нажмите 'Оплатить'.`,
         {
           reply_markup: {
             inline_keyboard: [
-              [
-                {
-                  text: "Для карт РФ",
-                  callback_data: `pay_russian_${level}_${duration}`,
-                },
-              ],
-              [
-                {
-                  text: "Для иностранных карт",
-                  callback_data: `pay_foreign_${level}_${duration}`,
-                },
-              ],
+              [{ text: "Оплатить", callback_data: `pay_${level}_${duration}` }],
               [{ text: "Назад", callback_data: `level_${level}` }],
             ],
           },
@@ -1158,185 +1217,6 @@ bot.on("callback_query", async (query) => {
       );
 
       bot.userData[chatId].messageId = message.message_id;
-    } else if (data.startsWith("pay_russian_")) {
-      const [_, level, duration] = data.split("_");
-      const amount = calculateAmount(level, duration);
-      const { data: user, error } = await supabase
-        .from("usersa")
-        .select("id")
-        .eq("telegram_id", chatId)
-        .single();
-
-      if (error) {
-        console.error("Ошибка при получении пользователя", error);
-        return bot.sendMessage(
-          chatId,
-          "Произошла ошибка при получении информации о пользователе."
-        );
-      }
-
-      const userId = user.id;
-
-      try {
-        const { paymentLink, paymentId } = await createPaymentLink(
-          amount,
-          "RUB",
-          `${userId}_${level}_${duration}`,
-          "customer@example.com",
-          userId,
-          level,
-          duration
-        );
-
-        const message = await bot.sendMessage(
-          chatId,
-          `Оплатите подписку по ссылке (Для карт РФ):`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: "Оплатить", url: paymentLink }],
-                [{ text: "Назад", callback_data: "back_to_main" }],
-              ],
-            },
-          }
-        );
-
-        bot.userData[chatId].messageId = message.message_id;
-
-        // Check payment status every second
-        const checkPaymentInterval = setInterval(async () => {
-          try {
-            const confirmation = await confirmPayment(
-              paymentId,
-              tinkoffTerminalKey,
-              tinkoffPassword,
-              userId,
-              level,
-              duration
-            );
-
-            if (confirmation.success) {
-              clearInterval(checkPaymentInterval);
-              const expireDate =
-                Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-              if (level === "1") {
-                const channelLink = await bot.createChatInviteLink(
-                  -1002306021477,
-                  {
-                    name: "Channel_Invite",
-                    expire_date: expireDate,
-                  }
-                );
-
-                bot.sendMessage(
-                  chatId,
-                  `Ссылка на закрытый канал: ${channelLink.invite_link}`
-                );
-              } else if (level === "2") {
-                const channelLink = await bot.createChatInviteLink(
-                  -1002306021477,
-                  {
-                    name: "Channel_Invite",
-                    expire_date: expireDate,
-                  }
-                );
-                const chatLink = await bot.createChatInviteLink(
-                  -1002451832857,
-                  {
-                    name: "Chat_Invite",
-                    expire_date: expireDate,
-                  }
-                );
-                bot.sendMessage(
-                  chatId,
-                  `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
-                );
-              }
-
-              const message = await bot.sendMessage(
-                chatId,
-                "Оплата подтверждена! Ваша подписка активирована.",
-                {
-                  reply_markup: {
-                    inline_keyboard: [
-                      [{ text: "Назад", callback_data: "back_to_main" }],
-                    ],
-                  },
-                }
-              );
-
-              bot.userData[chatId].messageId = message.message_id;
-              // Add logic to update the user's subscription status
-            }
-          } catch (error) {
-            clearInterval(checkPaymentInterval);
-            bot.sendMessage(
-              chatId,
-              "Произошла ошибка при проверке оплаты. Пожалуйста, попробуйте позже."
-            );
-            console.log(error);
-          }
-        }, 1000);
-      } catch (error) {
-        bot.sendMessage(
-          chatId,
-          "Произошла ошибка при создании платежа. Пожалуйста, попробуйте позже."
-        );
-        console.log(error);
-      }
-    } else if (data.startsWith("pay_foreign_")) {
-      const level = data.split("_")[2];
-      const duration = data.split("_")[3];
-
-      const amount = calculateAmount(level, duration);
-
-      const { data: user, error } = await supabase
-        .from("usersa")
-        .select("id")
-        .eq("telegram_id", chatId)
-        .single();
-
-      if (error) {
-        console.error("Ошибка при получении пользователя", error);
-        return bot.sendMessage(
-          chatId,
-          "Произошла ошибка при получении информации о пользователе."
-        );
-      }
-
-      const userId = user.id;
-
-      try {
-        let paymentLink;
-        if (level === "1") {
-          paymentLink = "https://app.lava.top/baguvix?subscriptionOfferId=372513dc-bce2-4ca2-a66a-50eb8c98073f";
-        } else if (level === "2") {
-          paymentLink = "https://app.lava.top/baguvix?subscriptionOfferId=1ce09007-fb90-4dd6-a434-2033eeccb32c";
-        }
-
-        const message = await bot.sendMessage(
-          chatId,
-          `Оплатите подписку по ссылке (Для иностранных карт):`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: "Оплатить", url: paymentLink }],
-                [{ text: "Назад", callback_data: "back_to_main" }],
-              ],
-            },
-          }
-        );
-
-        bot.userData[chatId].messageId = message.message_id;
-
-
-      } catch (error) {
-        bot.sendMessage(
-          chatId,
-          "Произошла ошибка при создании платежа. Пожалуйста, попробуйте позже."
-        );
-        console.log(error);
-      }
     } else if (data === "back_to_main") {
       const message = await bot.sendVideo(
         chatId,
@@ -1573,6 +1453,133 @@ bot.on("callback_query", async (query) => {
       );
 
       bot.userData[chatId].messageId = message.message_id;
+    } else if (data.startsWith("pay_")) {
+      const [_, level, duration] = data.split("_");
+      const amount = calculateAmount(level, duration);
+      const { data: user, error } = await supabase
+        .from("usersa")
+        .select("id")
+        .eq("telegram_id", chatId)
+        .single();
+
+      if (error) {
+        console.error("Ошибка при получении пользователя", error);
+        return bot.sendMessage(
+          chatId,
+          "Произошла ошибка при получении информации о пользователе."
+        );
+      }
+
+      const userId = user.id;
+
+      try {
+        const { paymentLink, paymentId } = await createPaymentLink(
+          amount,
+          "RUB",
+          `${userId}_${level}_${duration}`,
+          "customer@example.com",
+          userId,
+          level,
+          duration
+        );
+
+        const message = await bot.sendMessage(
+          chatId,
+          `Оплатите подписку по ссылке:`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "Оплатить", url: paymentLink }],
+                [{ text: "Назад", callback_data: "back_to_main" }],
+              ],
+            },
+          }
+        );
+
+        bot.userData[chatId].messageId = message.message_id;
+
+        // Check payment status every second
+        const checkPaymentInterval = setInterval(async () => {
+          try {
+            const confirmation = await confirmPayment(
+              paymentId,
+              tinkoffTerminalKey,
+              tinkoffPassword,
+              userId,
+              level,
+              duration
+            );
+
+            if (confirmation.success) {
+              clearInterval(checkPaymentInterval);
+              const expireDate =
+              Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+              if (level === "1") {
+                const channelLink = await bot.createChatInviteLink(
+                  -1002306021477,
+                  {
+                    name: "Channel_Invite",
+                    expire_date: expireDate,
+                  }
+                );
+
+                bot.sendMessage(
+                  chatId,
+                  `Ссылка на закрытый канал: ${channelLink.invite_link}`
+                );
+
+              } else if (level === "2") {
+
+                const channelLink = await bot.createChatInviteLink(
+                  -1002306021477,
+                  {
+                    name: "Channel_Invite",
+                    expire_date: expireDate,
+                  }
+                );
+                const chatLink = await bot.createChatInviteLink(
+                  -1002451832857,
+                  {
+                    name: "Chat_Invite",
+                    expire_date: expireDate,
+                  }
+                );
+                bot.sendMessage(
+                  chatId,
+                  `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
+                );
+              }
+
+              const message = await bot.sendMessage(
+                chatId,
+                "Оплата подтверждена! Ваша подписка активирована.",
+                {
+                  reply_markup: {
+                    inline_keyboard: [
+                      [{ text: "Назад", callback_data: "back_to_main" }],
+                    ],
+                  },
+                }
+              );
+
+              bot.userData[chatId].messageId = message.message_id;
+              // Add logic to update the user's subscription status
+            }
+          } catch (error) {
+            clearInterval(checkPaymentInterval);
+            bot.sendMessage(
+              chatId,
+              "Произошла ошибка при проверке оплаты. Пожалуйста, попробуйте позже."
+            );
+          }
+        }, 1000);
+      } catch (error) {
+        bot.sendMessage(
+          chatId,
+          "Произошла ошибка при создании платежа. Пожалуйста, попробуйте позже."
+        );
+        console.log(error);
+      }
     }
   } catch (error) {
     console.error("Ошибка при обработке callback_query:", error);
@@ -1731,47 +1738,6 @@ async function confirmPayment(
   }
 }
 
-async function createLavaPaymentLink(
-  amount,
-  currency,
-  description,
-  email,
-  userId,
-  level,
-  duration
-) {
-  const url = "https://api.lava.top/v1/payment";
-
-  const payload = {
-    amount: amount,
-    currency: currency,
-    description: description,
-    email: email,
-    userId: userId,
-    level: level,
-    duration: duration,
-  };
-
-  try {
-    const response = await axios.post(url, payload, {
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer 01GBSNySmYPXDXTGfhR0fVqWtr3ZEgmnMdoduhZehrzvbUL6qIebFhUgnOUR1pA8`,
-      },
-    });
-
-    const paymentLink = response.data.payment_url;
-    const paymentId = response.data.payment_id;
-
-    return { paymentLink, paymentId };
-  } catch (error) {
-    console.error("Error creating Lava payment link:", error);
-    throw error;
-  }
-}
-
-
-
 function calculateAmount(level, duration) {
   const prices = {
     level_1: {
@@ -1791,84 +1757,72 @@ function calculateAmount(level, duration) {
   return prices[`level_${level}`][duration];
 }
 
-// Webhook endpoint to receive payment status updates from Lava
+// Webhook endpoint for Lava.top payment confirmation
 app.post("/webhook/lava", async (req, res) => {
-  const { event, data } = req.body;
   console.log(req.body);
   
-  if (event === "payment.completed") {
-    const { userId, level, duration } = data;
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("level", level)
+    .order("end_date", { ascending: false })
+    .limit(1)
+    .single();
 
-    try {
-      // Update or create the subscription in the database
-      const { data: subscription, error: fetchError } = await supabase
-        .from("subscriptions")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("level", level)
-        .order("end_date", { ascending: false })
-        .limit(1)
-        .single();
+  let newEndDate = new Date();
+  if (subscription) {
+    newEndDate = new Date(subscription.end_date);
+  }
+  newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
+  if (fetchError) {
+    const { error: insertError } = await supabase
+      .from("subscriptions")
+      .insert([
+        {
+          user_id: userId,
+          level: level,
+          start_date: new Date(),
+          end_date: newEndDate,
+          auto_renew: true, // Assuming auto-renew is enabled by default
+        },
+      ]);
+  }
 
-      let newEndDate = new Date();
-      if (subscription) {
-        newEndDate = new Date(subscription.end_date);
-      }
-      newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
-      if (fetchError) {
-        const { error: insertError } = await supabase
-          .from("subscriptions")
-          .insert([
-            {
-              user_id: userId,
-              level: level,
-              start_date: new Date(),
-              end_date: newEndDate,
-              auto_renew: true, // Assuming auto-renew is enabled by default
-            },
-          ]);
-      }
+  if (subscription) {
+    // Extend existing subscription
+    const { error: updateError } = await supabase
+      .from("subscriptions")
+      .update({ end_date: newEndDate })
+      .eq("id", subscription.id);
 
-      if (subscription) {
-        // Extend existing subscription
-        const { error: updateError } = await supabase
-          .from("subscriptions")
-          .update({ end_date: newEndDate })
-          .eq("id", subscription.id);
-
-        if (updateError) {
-          console.error("Error updating subscription:", updateError);
-          throw new Error("Error updating subscription");
-        }
-      } else {
-        // Create new subscription
-        const { error: insertError } = await supabase
-          .from("subscriptions")
-          .insert([
-            {
-              user_id: userId,
-              level: level,
-              start_date: new Date(),
-              end_date: newEndDate,
-              auto_renew: true, // Assuming auto-renew is enabled by default
-            },
-          ]);
-
-        if (insertError) {
-          console.error("Error inserting subscription:", insertError);
-          throw new Error("Error inserting subscription");
-        }
-      }
-
-      // Notify the user
-      bot.sendMessage(userId, "Оплата подтверждена! Ваша подписка активирована.");
-
-      res.status(200).send("Payment processed successfully.");
-    } catch (error) {
-      console.error("Error processing payment:", error);
-      res.status(500).send("Error processing payment.");
+    if (updateError) {
+      console.error("Error updating subscription:", updateError);
+      throw new Error("Error updating subscription");
     }
   } else {
-    res.status(400).send("Invalid event type.");
+    // Create new subscription
+    const { error: insertError } = await supabase
+      .from("subscriptions")
+      .insert([
+        {
+          user_id: userId,
+          level: level,
+          start_date: new Date(),
+          end_date: newEndDate,
+          auto_renew: true, // Assuming auto-renew is enabled by default
+        },
+      ]);
+
+    if (insertError) {
+      console.error("Error inserting subscription:", insertError);
+      throw new Error("Error inserting subscription");
+    }
   }
+
+  // Log the webhook status body and data
+  console.log("Webhook status body:", req.body);
+  console.log("Webhook status data:", req.data);
+
+  res.status(200).send("Webhook received");
 });
