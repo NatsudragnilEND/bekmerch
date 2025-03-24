@@ -654,10 +654,8 @@ async function createLavaPaymentLink(userId, level, duration) {
   const url = "https://gate.lava.top/api/v2/invoice";
 
   const payload = {
-    email: `${userId}, ${level}, ${duration}`
-    offerId: level === 1
-      ? "372513dc-bce2-4ca2-a66a-50eb8c98073f"
-      : "1ce09007-fb90-4dd6-a434-2033eeccb32c",
+    email: `${userId}, ${level}, ${duration}`,
+    offerId: level === 1 ? "372513dc-bce2-4ca2-a66a-50eb8c98073f" : "1ce09007-fb90-4dd6-a434-2033eeccb32c",
     currency: "RUB",
     apiKey: lavaApiKey,
   };
