@@ -1795,6 +1795,44 @@ app.post("/webhook/lava", async (req, res) => {
       };
     }
     const { userId, level, duration } = extractDetails(event.buyer.email);
+    const expireDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+    if (level == "1") {
+      const channelLink = await bot.createChatInviteLink(-1002306021477, {
+        name: "Channel_Invite",
+        expire_date: expireDate,
+      });
+
+      bot.sendMessage(
+        userId,
+        `Ссылка на закрытый канал: ${channelLink.invite_link}`
+      );
+    } else if (level == "2") {
+      const channelLink = await bot.createChatInviteLink(-1002306021477, {
+        name: "Channel_Invite",
+        expire_date: expireDate,
+      });
+      const chatLink = await bot.createChatInviteLink(-1002451832857, {
+        name: "Chat_Invite",
+        expire_date: expireDate,
+      });
+      bot.sendMessage(
+        userId,
+        `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
+      );
+    }
+
+    const message = await bot.sendMessage(
+      userId,
+      "Оплата подтверждена! Ваша подписка активирована.",
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
+        },
+      }
+    );
+
+    bot.userData[userId].messageId = message.message_id;
+
     const { data: user, error: usererror } = await supabase
       .from("usersa")
       .select("*")
@@ -1841,43 +1879,7 @@ app.post("/webhook/lava", async (req, res) => {
     }
 
     res.status(200).send("Webhook received and processed");
-    const expireDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-    if (level == "1") {
-      const channelLink = await bot.createChatInviteLink(-1002306021477, {
-        name: "Channel_Invite",
-        expire_date: expireDate,
-      });
-
-      bot.sendMessage(
-        chatId,
-        `Ссылка на закрытый канал: ${channelLink.invite_link}`
-      );
-    } else if (level == "2") {
-      const channelLink = await bot.createChatInviteLink(-1002306021477, {
-        name: "Channel_Invite",
-        expire_date: expireDate,
-      });
-      const chatLink = await bot.createChatInviteLink(-1002451832857, {
-        name: "Chat_Invite",
-        expire_date: expireDate,
-      });
-      bot.sendMessage(
-        chatId,
-        `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
-      );
-    }
-
-    const message = await bot.sendMessage(
-      chatId,
-      "Оплата подтверждена! Ваша подписка активирована.",
-      {
-        reply_markup: {
-          inline_keyboard: [[{ text: "Назад", callback_data: "back_to_main" }]],
-        },
-      }
-    );
-
-    bot.userData[chatId].messageId = message.message_id;
+    
   } else {
     res.status(200).send("Webhook received, but not processed");
   }
