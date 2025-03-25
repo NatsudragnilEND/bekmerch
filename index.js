@@ -521,12 +521,11 @@ async function checkAllMembers() {
             continue;
           }
 
-          // Check user's subscription
-          const { data: subscription, error: error } = await supabase
+          // Check user's subscriptions
+          const { data: subscriptions, error: error } = await supabase
             .from("subscriptions")
             .select("id, user_id, level, end_date")
-            .eq("user_id", member.id)
-            .single();
+            .eq("user_id", member.id);
 
           if (error) {
             await delayIfNeeded();
@@ -541,13 +540,27 @@ async function checkAllMembers() {
               await delayIfNeeded();
               await bot.unbanChatMember(group.id, member.telegram_id);
             }, 1000);
+            continue;
           }
 
-          if (
-            !subscription ||
-            new Date(subscription.end_date) < new Date() ||
-            subscription.level == 1
-          ) {
+          // Determine the valid subscription with the highest level
+          const validSubscription = subscriptions
+            .filter((sub) => new Date(sub.end_date) >= new Date())
+            .reduce((prev, curr) =>
+              prev ? (prev.level > curr.level ? prev : curr) : curr, null);
+
+          if (!validSubscription) {
+            await delayIfNeeded();
+            await bot.banChatMember(group.id, member.telegram_id);
+            setTimeout(async () => {
+              await delayIfNeeded();
+              await bot.unbanChatMember(group.id, member.telegram_id);
+            }, 1000);
+            continue;
+          }
+
+          // Validate access based on subscription level
+          if (validSubscription.level === 1 && group.name === "Group") {
             await delayIfNeeded();
             await bot.banChatMember(group.id, member.telegram_id);
             setTimeout(async () => {
@@ -567,6 +580,7 @@ async function checkAllMembers() {
     console.error("Ошибка при проверке участников:", error);
   }
 }
+
 
 // Handle new members joining the group or channel
 bot.on("new_chat_members", async (msg) => {
