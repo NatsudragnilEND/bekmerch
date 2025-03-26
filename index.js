@@ -524,15 +524,9 @@ async function checkAllMembers() {
           if (
             error.response?.body?.description === "Bad Request: user not found"
           ) {
-            console.log(
-              `Пользователь ${member.telegram_id} никогда не был в ${group.name}. Пропуск.`
-            );
             return;
           }
           if (attempt < retryAttempts) {
-            console.log(
-              `Retry ${attempt} for user ${member.telegram_id} in ${group.name}`
-            );
             await delayIfNeeded(error, attempt);
             return processMember(member, group, attempt + 1);
           }
@@ -545,9 +539,6 @@ async function checkAllMembers() {
           ["left", "kicked"].includes(chatMember.status) ||
           ["administrator", "creator"].includes(chatMember.status)
         ) {
-          console.log(
-            `Пользователь ${member.telegram_id} отсутствует или является админом в ${group.name}. Пропуск.`
-          );
           return;
         }
 
