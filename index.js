@@ -147,6 +147,29 @@ app.delete("/api/admin/delete-material/:id", async (req, res) => {
 app.post("/api/subscription/subscribe", async (req, res) => {
   const { userId, level, duration } = req.body;
 
+  // Check for existing subscriptions and update or delete them
+  const { data: existingSubscriptions, error: fetchError } = await supabase
+    .from("subscriptions")
+    .select("*")
+    .eq("user_id", userId);
+
+  if (fetchError) {
+    return res.status(500).json({ error: "Ошибка при получении подписок" });
+  }
+
+  if (existingSubscriptions.length > 0) {
+    // Delete all existing subscriptions
+    const { error: deleteError } = await supabase
+      .from("subscriptions")
+      .delete()
+      .eq("user_id", userId);
+
+    if (deleteError) {
+      return res.status(500).json({ error: "Ошибка при удалении подписок" });
+    }
+  }
+
+  // Create a new subscription
   const { data, error } = await supabase.from("subscriptions").insert([
     {
       user_id: userId,
@@ -157,7 +180,6 @@ app.post("/api/subscription/subscribe", async (req, res) => {
   ]);
 
   if (error) {
-    console.log(error);
     return res.status(500).json({ error: "Ошибка при создании подписки" });
   }
 
@@ -196,8 +218,6 @@ app.post("/api/subscription/extend", async (req, res) => {
     .single();
 
   if (fetchError) {
-    console.log(userId);
-    console.log(fetchError);
     return res.status(500).json({ error: "Ошибка при получении подписки" });
   }
 
@@ -217,8 +237,6 @@ app.post("/api/subscription/extend", async (req, res) => {
     .eq("id", subscription.id);
 
   if (error) {
-    console.log(error);
-    console.log("Error extending subscription");
     return res.status(500).json({ error: "Ошибка при продлении подписки" });
   }
 
@@ -466,6 +484,10 @@ async function checkAllMembers() {
     { id: -1002306021477, name: "Channel" },
   ];
 
+  const concurrencyLimit = 3; // Reduce concurrency limit
+  const retryAttempts = 3; // Number of retry attempts
+  const retryDelay = 2000; // Initial retry delay in milliseconds
+
   try {
     const { data: members, error: membersError } = await supabase
       .from("usersa")
@@ -476,109 +498,145 @@ async function checkAllMembers() {
         `Ошибка при получении зарегистрированных пользователей: ${membersError.message}`
       );
     }
-    async function delayIfNeeded(error) {
-      let delay = 5000; // Базовая задержка
-      if (
-        error &&
-        error.response &&
-        error.response.body &&
-        error.response.body.parameters?.retry_after
-      ) {
+
+    async function delayIfNeeded(error, attempt = 1) {
+      let delay = 0;
+      if (error?.response?.body?.parameters?.retry_after) {
         delay = error.response.body.parameters.retry_after * 1000;
+      } else if (error?.code === 'ETIMEDOUT' && attempt < retryAttempts) {
+        delay = retryDelay * Math.pow(2, attempt); // Exponential backoff
       }
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
+
     // Convert database users into a Set for fast lookup
     const dbUserIds = new Set(members.map((member) => member.telegram_id));
 
-    // Check each user in both groups one by one with a 5-second delay
-    for (const member of members) {
-      for (const group of groups) {
+    // Function to process a single member
+    async function processMember(member, group, attempt = 1) {
+      try {
+        await delayIfNeeded(null, attempt); // Ensure delay between bot calls if needed
+
+        let chatMember;
         try {
-          await delayIfNeeded(); // Ensure 5-second delay between bot calls
-
-          const chatMember = await bot.getChatMember(
-            group.id,
-            member.telegram_id
-          );
-
-          // Skip if user is an admin or the bot itself
-          if (["administrator", "creator"].includes(chatMember.status))
-            continue;
-
-          // Check user's subscriptions
-          const { data: subscriptions, error: error } = await supabase
-            .from("subscriptions")
-            .select("id, user_id, level, end_date")
-            .eq("user_id", member.id);
-
-          if (error) {
-            console.error(
-              `Ошибка при получении подписок для пользователя ${member.telegram_id}:`,
-              error
-            );
-            await delayIfNeeded();
-            continue;
-          }
-
-          // Determine the valid subscription with the highest level
-          const validSubscription = subscriptions
-            .filter((sub) => new Date(sub.end_date) >= new Date())
-            .reduce(
-              (prev, curr) =>
-                prev ? (prev.level > curr.level ? prev : curr) : curr,
-              null
-            );
-
-          if (!validSubscription) {
-            console.log(
-              `Пользователь ${member.telegram_id} не имеет действующей подписки. Удаление из ${group.name}.`
-            );
-            await delayIfNeeded();
-            await bot.banChatMember(group.id, member.telegram_id);
-            setTimeout(async () => {
-              await delayIfNeeded();
-              await bot.unbanChatMember(group.id, member.telegram_id);
-            }, 1000);
-            continue;
-          }
-
-          // Validate access based on subscription level
-          if (validSubscription.level === 1 && group.name === "Group") {
-            console.log(
-              `Пользователь ${member.telegram_id} имеет подписку уровня 1. Удаление из ${group.name}.`
-            );
-            await delayIfNeeded();
-            await bot.banChatMember(group.id, member.telegram_id);
-            setTimeout(async () => {
-              await delayIfNeeded();
-              await bot.unbanChatMember(group.id, member.telegram_id);
-            }, 1000);
-          }
+          chatMember = await bot.getChatMember(group.id, member.telegram_id);
         } catch (error) {
           if (
-            error.response &&
-            error.response.body &&
-            error.response.body.description === "Bad Request: user not found"
+            error.response?.body?.description === "Bad Request: user not found"
           ) {
-            // User is not in the group, skip removal
             console.log(
-              `Пользователь ${member.telegram_id} не найден в группе ${group.name}. Пропуск удаления.`
+              `Пользователь ${member.telegram_id} никогда не был в ${group.name}. Пропуск.`
             );
-            continue;
-          } else {
-            console.error(
-              `Ошибка при проверке участника с Telegram ID ${member.telegram_id} в ${group.name}:`,
-              error
-            );
+            return;
           }
+          if (attempt < retryAttempts) {
+            console.log(
+              `Retry ${attempt} for user ${member.telegram_id} in ${group.name}`
+            );
+            await delayIfNeeded(error, attempt);
+            return processMember(member, group, attempt + 1);
+          }
+          throw error; // Rethrow unexpected errors
         }
+
+        // If chatMember is undefined or user is not in the group, skip banning
+        if (
+          !chatMember ||
+          ["left", "kicked"].includes(chatMember.status) ||
+          ["administrator", "creator"].includes(chatMember.status)
+        ) {
+          console.log(
+            `Пользователь ${member.telegram_id} отсутствует или является админом в ${group.name}. Пропуск.`
+          );
+          return;
+        }
+
+        // Check user's subscriptions
+        const { data: subscriptions, error: subError } = await supabase
+          .from("subscriptions")
+          .select("id, user_id, level, end_date")
+          .eq("user_id", member.id);
+
+        if (subError) {
+          console.error(
+            `Ошибка при получении подписок для пользователя ${member.telegram_id}:`,
+            subError
+          );
+          await delayIfNeeded(null, attempt);
+          return;
+        }
+
+        // Determine the valid subscription with the highest level
+        const validSubscription = subscriptions
+          .filter((sub) => new Date(sub.end_date) >= new Date())
+          .reduce(
+            (prev, curr) =>
+              prev ? (prev.level > curr.level ? prev : curr) : curr,
+            null
+          );
+
+        // If the user has no valid subscription, remove them
+        if (!validSubscription) {
+          console.log(
+            `Пользователь ${member.telegram_id} не имеет действующей подписки. Удаление из ${group.name}.`
+          );
+          await delayIfNeeded(null, attempt);
+          await bot.banChatMember(group.id, member.telegram_id);
+          setTimeout(async () => {
+            await delayIfNeeded(null, attempt);
+            await bot.unbanChatMember(group.id, member.telegram_id);
+          }, 1000);
+          return;
+        }
+
+        // Validate access based on subscription level
+        if (validSubscription.level === 1 && group.name === "Group") {
+          console.log(
+            `Пользователь ${member.telegram_id} имеет подписку уровня 1. Удаление из ${group.name}.`
+          );
+          await delayIfNeeded(null, attempt);
+          await bot.banChatMember(group.id, member.telegram_id);
+          setTimeout(async () => {
+            await delayIfNeeded(null, attempt);
+            await bot.unbanChatMember(group.id, member.telegram_id);
+          }, 1000);
+        }
+      } catch (error) {
+        console.error(
+          `Ошибка при проверке участника с Telegram ID ${member.telegram_id} в ${group.name}:`,
+          error
+        );
       }
     }
+
+    // Process members in chunks
+    async function processChunk(chunk) {
+      const promises = chunk.flatMap((member) =>
+        groups.map((group) => processMember(member, group))
+      );
+      await Promise.all(promises);
+    }
+
+    // Split members into chunks
+    const chunkSize = Math.ceil(members.length / concurrencyLimit);
+    const chunks = Array.from({ length: concurrencyLimit }, (_, i) =>
+      members.slice(i * chunkSize, (i + 1) * chunkSize)
+    );
+
+    // Process all chunks concurrently
+    await Promise.all(chunks.map(processChunk));
+
+    // Schedule the next execution after 1 minute
+    setTimeout(checkAllMembers, 60000);
   } catch (error) {
     console.error("Ошибка при проверке участников:", error);
+    // Retry after 1 minute in case of error
+    setTimeout(checkAllMembers, 60000);
   }
 }
+
+checkAllMembers();
+
 
 // Handle new members joining the group or channel
 bot.on("new_chat_members", async (msg) => {
@@ -650,11 +708,6 @@ schedule.scheduleJob("0 0 * * *", async () => {
   await autoRenewSubscriptions();
 });
 
-// Периодическая проверка участников группы
-schedule.scheduleJob("*/1 * * * *", async () => {
-  await checkAllMembers();
-});
-checkAllMembers();
 
 // Telegram-бот
 const prices = {
@@ -1585,7 +1638,7 @@ bot.on("callback_query", async (query) => {
                   .from("subscriptions")
                   .insert([
                     {
-                      user_id: user.id,
+                      user_id: userId,
                       level: level,
                       start_date: new Date(),
                       end_date: newEndDate,
@@ -1805,16 +1858,7 @@ bot.on("message", async (msg) => {
   }
 });
 
-
-
-async function confirmPayment(
-  paymentId,
-  tinkoffTerminalKey,
-  tinkoffPassword,
-  userId,
-  level,
-  duration
-) {
+async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, userId, level, duration) {
   const url = "https://securepay.tinkoff.ru/v2/GetState";
 
   const payload = {
@@ -1884,6 +1928,7 @@ async function confirmPayment(
           newEndDate = new Date(subscription.end_date);
         }
         newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
+
         if (fetchError) {
           const { error: insertError } = await supabase
             .from("subscriptions")
@@ -1957,7 +2002,6 @@ function calculateAmount(level, duration) {
   return prices[`level_${level}`][duration];
 }
 
-// Webhook endpoint for Lava.top payment confirmation
 const sentLinks = {};
 
 app.post("/webhook/lava", async (req, res) => {
@@ -1965,6 +2009,7 @@ app.post("/webhook/lava", async (req, res) => {
 
   // Log the webhook data
   console.log("Webhook event data:", event);
+
   if (event.eventType === "payment.success") {
     function extractDetails(email) {
       const [userId, rest] = email.split("a@");
@@ -1977,6 +2022,7 @@ app.post("/webhook/lava", async (req, res) => {
         duration: Number(duration),
       };
     }
+
     const { userId, level, duration } = extractDetails(event.buyer.email);
     const expireDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
 
@@ -1984,7 +2030,7 @@ app.post("/webhook/lava", async (req, res) => {
       sentLinks[userId] = { channel: false, chat: false };
     }
 
-    if (level == "1" && !sentLinks[userId].channel) {
+    if (level === 1 && !sentLinks[userId].channel) {
       const channelLink = await bot.createChatInviteLink(-1002306021477, {
         name: "Channel_Invite",
         expire_date: expireDate,
@@ -1995,7 +2041,7 @@ app.post("/webhook/lava", async (req, res) => {
         `Ссылка на закрытый канал: ${channelLink.invite_link}`
       );
       sentLinks[userId].channel = true;
-    } else if (level == "2" && !sentLinks[userId].chat) {
+    } else if (level === 2 && !sentLinks[userId].chat) {
       const channelLink = await bot.createChatInviteLink(-1002306021477, {
         name: "Channel_Invite",
         expire_date: expireDate,
@@ -2021,6 +2067,7 @@ app.post("/webhook/lava", async (req, res) => {
       .select("*")
       .eq("telegram_id", userId)
       .single();
+
     // Update the subscription status in your database
     const { data: subscription, error: fetchError } = await supabase
       .from("subscriptions")
