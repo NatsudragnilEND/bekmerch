@@ -451,6 +451,16 @@ async function checkAllMembers() {
   const retryDelay = 2000;
 
   try {
+    const { data: members, error: membersError } = await supabase
+      .from("usersa")
+      .select("id, telegram_id");
+
+    if (membersError) {
+      throw new Error(
+        `Ошибка при получении зарегистрированных пользователей: ${membersError.message}`
+      );
+    }
+
     async function delayIfNeeded(error, attempt = 1) {
       let delay = 0;
       if (error?.response?.body?.parameters?.retry_after) {
@@ -461,37 +471,44 @@ async function checkAllMembers() {
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
-    async function fetchGroupMembers(groupId) {
-      let members = [];
-      let offset = 0;
-      const limit = 200; // Telegram API limit for getChatMembersCount
-
-      while (true) {
-        try {
-          const chatMembers = await bot.getChatAdministrators(groupId, { limit, offset });
-          if (chatMembers.length === 0) break;
-          members = members.concat(chatMembers);
-          offset += limit;
-        } catch (error) {
-          await delayIfNeeded(error);
-        }
-      }
-
-      return members;
-    }
+    const dbUserIds = new Set(members.map((member) => member.telegram_id));
 
     async function processMember(member, group, attempt = 1) {
       try {
         await delayIfNeeded(null, attempt);
 
+        let chatMember;
+        try {
+          chatMember = await bot.getChatMember(group.id, member.telegram_id);
+        } catch (error) {
+          if (
+            error.response?.body?.description === "Bad Request: user not found"
+          ) {
+            return;
+          }
+          if (attempt < retryAttempts) {
+            await delayIfNeeded(error, attempt);
+            return processMember(member, group, attempt + 1);
+          }
+          throw error;
+        }
+
+        if (
+          !chatMember ||
+          ["left", "kicked"].includes(chatMember.status) ||
+          ["administrator", "creator"].includes(chatMember.status)
+        ) {
+          return;
+        }
+
         const { data: subscriptions, error: subError } = await supabase
           .from("subscriptions")
           .select("id, user_id, level, end_date")
-          .eq("user_id", member.user.id);
+          .eq("user_id", member.id);
 
         if (subError) {
           console.error(
-            `Ошибка при получении подписок для пользователя ${member.user.id}:`,
+            `Ошибка при получении подписок для пользователя ${member.telegram_id}:`,
             subError
           );
           await delayIfNeeded(null, attempt);
@@ -508,47 +525,46 @@ async function checkAllMembers() {
 
         if (!validSubscription) {
           console.log(
-            `Пользователь ${member.user.id} не имеет действующей подписки. Удаление из ${group.name}.`
+            `Пользователь ${member.telegram_id} не имеет действующей подписки. Удаление из ${group.name}.`
           );
           await delayIfNeeded(null, attempt);
-          await bot.banChatMember(group.id, member.user.id);
+          await bot.banChatMember(group.id, member.telegram_id);
           setTimeout(async () => {
             await delayIfNeeded(null, attempt);
-            await bot.unbanChatMember(group.id, member.user.id);
+            await bot.unbanChatMember(group.id, member.telegram_id);
           }, 1000);
           return;
         }
 
         if (validSubscription.level === 1 && group.name === "Group") {
           console.log(
-            `Пользователь ${member.user.id} имеет подписку уровня 1. Удаление из ${group.name}.`
+            `Пользователь ${member.telegram_id} имеет подписку уровня 1. Удаление из ${group.name}.`
           );
           await delayIfNeeded(null, attempt);
-          await bot.banChatMember(group.id, member.user.id);
+          await bot.banChatMember(group.id, member.telegram_id);
           setTimeout(async () => {
             await delayIfNeeded(null, attempt);
-            await bot.unbanChatMember(group.id, member.user.id);
+            await bot.unbanChatMember(group.id, member.telegram_id);
           }, 1000);
         }
       } catch (error) {
-        console.error(`Ошибка при обработке пользователя ${member.user.id}:`, error);
+        
       }
     }
 
-    async function processChunk(chunk, group) {
-      const promises = chunk.map((member) => processMember(member, group));
+    async function processChunk(chunk) {
+      const promises = chunk.flatMap((member) =>
+        groups.map((group) => processMember(member, group))
+      );
       await Promise.all(promises);
     }
 
-    for (const group of groups) {
-      const members = await fetchGroupMembers(group.id);
-      const chunkSize = Math.ceil(members.length / concurrencyLimit);
-      const chunks = Array.from({ length: concurrencyLimit }, (_, i) =>
-        members.slice(i * chunkSize, (i + 1) * chunkSize)
-      );
+    const chunkSize = Math.ceil(members.length / concurrencyLimit);
+    const chunks = Array.from({ length: concurrencyLimit }, (_, i) =>
+      members.slice(i * chunkSize, (i + 1) * chunkSize)
+    );
 
-      await Promise.all(chunks.map((chunk) => processChunk(chunk, group)));
-    }
+    await Promise.all(chunks.map(processChunk));
 
     setTimeout(checkAllMembers, 60000);
   } catch (error) {
@@ -558,7 +574,6 @@ async function checkAllMembers() {
 }
 
 checkAllMembers();
-
 
 bot.on("new_chat_members", async (msg) => {
   const chatId = msg.chat.id;
