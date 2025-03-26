@@ -548,10 +548,7 @@ async function checkAllMembers() {
           }, 1000);
         }
       } catch (error) {
-        console.error(
-          `Ошибка при проверке участника с Telegram ID ${member.telegram_id} в ${group.name}:`,
-          error
-        );
+        
       }
     }
 
