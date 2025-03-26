@@ -466,21 +466,6 @@ async function checkAllMembers() {
     { id: -1002306021477, name: "Channel" },
   ];
 
-  let lastBotCallTime = 0;
-
-  async function delayIfNeeded(error) {
-    let delay = 5000; // Базовая задержка
-    if (
-      error &&
-      error.response &&
-      error.response.body &&
-      error.response.body.parameters?.retry_after
-    ) {
-      delay = error.response.body.parameters.retry_after * 1000;
-    }
-    await new Promise((resolve) => setTimeout(resolve, delay));
-  }
-
   try {
     const { data: members, error: membersError } = await supabase
       .from("usersa")
@@ -491,7 +476,18 @@ async function checkAllMembers() {
         `Ошибка при получении зарегистрированных пользователей: ${membersError.message}`
       );
     }
-
+    async function delayIfNeeded(error) {
+      let delay = 5000; // Базовая задержка
+      if (
+        error &&
+        error.response &&
+        error.response.body &&
+        error.response.body.parameters?.retry_after
+      ) {
+        delay = error.response.body.parameters.retry_after * 1000;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
     // Convert database users into a Set for fast lookup
     const dbUserIds = new Set(members.map((member) => member.telegram_id));
 
@@ -510,17 +506,6 @@ async function checkAllMembers() {
           if (["administrator", "creator"].includes(chatMember.status))
             continue;
 
-          // Remove users who are not in the database
-          if (!dbUserIds.has(member.telegram_id)) {
-            await delayIfNeeded();
-            await bot.banChatMember(
-              group.id,
-              member.telegram_id,
-              Math.floor(Date.now() / 1000) + 1
-            );
-            continue;
-          }
-
           // Check user's subscriptions
           const { data: subscriptions, error: error } = await supabase
             .from("subscriptions")
@@ -528,28 +513,27 @@ async function checkAllMembers() {
             .eq("user_id", member.id);
 
           if (error) {
+            console.error(
+              `Ошибка при получении подписок для пользователя ${member.telegram_id}:`,
+              error
+            );
             await delayIfNeeded();
-            await bot.banChatMember(group.id, member.telegram_id);
-            setTimeout(async () => {
-              await delayIfNeeded();
-              await bot.unbanChatMember(group.id, member.telegram_id);
-            }, 1000);
-            await delayIfNeeded();
-            await bot.banChatMember(group.id, member.telegram_id);
-            setTimeout(async () => {
-              await delayIfNeeded();
-              await bot.unbanChatMember(group.id, member.telegram_id);
-            }, 1000);
             continue;
           }
 
           // Determine the valid subscription with the highest level
           const validSubscription = subscriptions
             .filter((sub) => new Date(sub.end_date) >= new Date())
-            .reduce((prev, curr) =>
-              prev ? (prev.level > curr.level ? prev : curr) : curr, null);
+            .reduce(
+              (prev, curr) =>
+                prev ? (prev.level > curr.level ? prev : curr) : curr,
+              null
+            );
 
           if (!validSubscription) {
+            console.log(
+              `Пользователь ${member.telegram_id} не имеет действующей подписки. Удаление из ${group.name}.`
+            );
             await delayIfNeeded();
             await bot.banChatMember(group.id, member.telegram_id);
             setTimeout(async () => {
@@ -561,6 +545,9 @@ async function checkAllMembers() {
 
           // Validate access based on subscription level
           if (validSubscription.level === 1 && group.name === "Group") {
+            console.log(
+              `Пользователь ${member.telegram_id} имеет подписку уровня 1. Удаление из ${group.name}.`
+            );
             await delayIfNeeded();
             await bot.banChatMember(group.id, member.telegram_id);
             setTimeout(async () => {
@@ -569,10 +556,22 @@ async function checkAllMembers() {
             }, 1000);
           }
         } catch (error) {
-          console.error(
-            `Ошибка при проверке участника с Telegram ID ${member.telegram_id} в ${group.name}:`,
-            error
-          );
+          if (
+            error.response &&
+            error.response.body &&
+            error.response.body.description === "Bad Request: user not found"
+          ) {
+            // User is not in the group, skip removal
+            console.log(
+              `Пользователь ${member.telegram_id} не найден в группе ${group.name}. Пропуск удаления.`
+            );
+            continue;
+          } else {
+            console.error(
+              `Ошибка при проверке участника с Telegram ID ${member.telegram_id} в ${group.name}:`,
+              error
+            );
+          }
         }
       }
     }
@@ -580,7 +579,6 @@ async function checkAllMembers() {
     console.error("Ошибка при проверке участников:", error);
   }
 }
-
 
 // Handle new members joining the group or channel
 bot.on("new_chat_members", async (msg) => {
@@ -706,6 +704,9 @@ async function createLavaPaymentLink(userId, level, duration) {
   }
 }
 
+// Add a "Subscribe" button before level selection
+const subscribeButton = [{ text: "Подписаться", callback_data: "subscribe" }];
+
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
@@ -726,13 +727,16 @@ bot.onText(/\/start/, async (msg) => {
         last_name: msg.chat.last_name,
       },
     ]);
+
+    // Fetch the newly inserted user data
+    const { data: newUser } = await supabase
+      .from("usersa")
+      .select("id")
+      .eq("telegram_id", chatId)
+      .single();
+
+    user = newUser;
   }
-  let { data: user2, error: userError2 } = await supabase
-    .from("usersa")
-    .select("id")
-    .eq("telegram_id", chatId)
-    .single();
-  user = user2;
 
   // Fetch the user's subscription status
   const { data: subscription, error: subscriptionError } = await supabase
@@ -759,8 +763,7 @@ bot.onText(/\/start/, async (msg) => {
     "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.";
 
   let inlineKeyboard = [
-    [{ text: "Уровень 1", callback_data: "level_1" }],
-    [{ text: "Уровень 2", callback_data: "level_2" }],
+    subscribeButton,
     [
       {
         text: 'Сообщество "BAGUVIX"',
@@ -779,18 +782,17 @@ bot.onText(/\/start/, async (msg) => {
       : []),
   ];
 
-  if (subscription && new Date(subscription.end_date) >= new Date()) {
-    // Function to check if a user is an administrator
-    async function isUserAdmin(chatId, userId) {
-      try {
-        const admins = await bot.getChatAdministrators(chatId);
-        return admins.some((admin) => admin.user.id === userId);
-      } catch (error) {
-        console.error("Error checking admin status:", error);
-        return false;
-      }
+  async function isUserAdmin(chatId, userId) {
+    try {
+      const admins = await bot.getChatAdministrators(chatId);
+      return admins.some((admin) => admin.user.id === userId);
+    } catch (error) {
+      console.error("Error checking admin status:", error);
+      return false;
     }
+  }
 
+  if (subscription && new Date(subscription.end_date) >= new Date()) {
     const userIsAdmin = await isUserAdmin(-1002306021477, chatId);
     const userIsAdminc = await isUserAdmin(-1002306021477, chatId);
     if (subscription.level === 1 && !userIsAdmin) {
@@ -862,7 +864,23 @@ bot.on("callback_query", async (query) => {
   try {
     await bot.deleteMessage(chatId, messageId);
 
-    if (data === "level_1" || data === "level_2") {
+    if (data === "subscribe") {
+      // Show subscription options
+      const message = await bot.sendMessage(
+        chatId,
+        "Выберите уровень подписки:",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Уровень 1", callback_data: "level_1" }],
+              [{ text: "Уровень 2", callback_data: "level_2" }],
+              [{ text: "Назад", callback_data: "back_to_main" }],
+            ],
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data === "level_1" || data === "level_2") {
       const level = data.split("_")[1];
 
       // Show the agreement message
@@ -1000,7 +1018,12 @@ bot.on("callback_query", async (query) => {
               {
                 reply_markup: {
                   inline_keyboard: [
-                    [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
+                    [
+                      {
+                        text: "Карты РФ",
+                        callback_data: `russian_cards_${level}`,
+                      },
+                    ],
                     [
                       {
                         text: "Иностранные карты",
@@ -1022,7 +1045,12 @@ bot.on("callback_query", async (query) => {
             {
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
+                  [
+                    {
+                      text: "Карты РФ",
+                      callback_data: `russian_cards_${level}`,
+                    },
+                  ],
                   [
                     {
                       text: "Иностранные карты",
@@ -1080,8 +1108,7 @@ bot.on("callback_query", async (query) => {
             "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
           reply_markup: {
             inline_keyboard: [
-              [{ text: "Уровень 1", callback_data: "level_1" }],
-              [{ text: "Уровень 2", callback_data: "level_2" }],
+              subscribeButton,
               [
                 {
                   text: 'Сообщество "BAGUVIX"',
@@ -1218,8 +1245,7 @@ bot.on("callback_query", async (query) => {
             "Если ты не готов меняться — проходи мимо. Если готов — добро пожаловать.",
           reply_markup: {
             inline_keyboard: [
-              [{ text: "Уровень 1", callback_data: "level_1" }],
-              [{ text: "Уровень 2", callback_data: "level_2" }],
+              subscribeButton,
               [
                 {
                   text: 'Сообщество "BAGUVIX"',
@@ -1249,6 +1275,12 @@ bot.on("callback_query", async (query) => {
           inline_keyboard: [
             [{ text: "Открыть админ-панель", web_app: { url: adminUrl } }],
             [{ text: "Назад", callback_data: "back_to_main" }],
+            [
+              {
+                text: "Сделать объявление",
+                callback_data: "make_announcement",
+              },
+            ], // New button for making announcements
           ],
         },
       });
@@ -1330,8 +1362,6 @@ bot.on("callback_query", async (query) => {
         .order("end_date", { ascending: false })
         .limit(1)
         .single();
-
-      
 
       if (subscription && new Date(subscription.end_date) >= new Date()) {
         const expiryDate = new Date(subscription.end_date).toLocaleDateString();
@@ -1548,7 +1578,7 @@ bot.on("callback_query", async (query) => {
               if (subscription) {
                 newEndDate = new Date(subscription.end_date);
               }
-              newEndDate.setMonth(newEndDate.getMonth() + duration);
+              newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
 
               if (fetchError) {
                 const { error: insertError } = await supabase
@@ -1589,11 +1619,192 @@ bot.on("callback_query", async (query) => {
         );
         console.log(error);
       }
+    } else if (data === "make_announcement") {
+      // Ask the admin to choose the audience for the announcement
+      const message = await bot.sendMessage(
+        chatId,
+        "Выберите аудиторию для объявления:",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Всем", callback_data: "announce_all" }],
+              [{ text: "Подписчикам", callback_data: "announce_subscribers" }],
+              [{ text: "Одному человеку", callback_data: "announce_one" }],
+              [{ text: "Назад", callback_data: "admin_panel" }],
+            ],
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data === "announce_all") {
+      // Ask the admin to send the message for the announcement
+      const message = await bot.sendMessage(
+        chatId,
+        "Отправьте сообщение для объявления. Вы можете прикрепить изображение, видео или другой медиафайл.",
+        {
+          reply_markup: {
+            force_reply: true,
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+      bot.userData[chatId].announcementType = "all";
+    } else if (data === "announce_subscribers") {
+      // Ask the admin to send the message for the announcement
+      const message = await bot.sendMessage(
+        chatId,
+        "Отправьте сообщение для объявления. Вы можете прикрепить изображение, видео или другой медиафайл.",
+        {
+          reply_markup: {
+            force_reply: true,
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+      bot.userData[chatId].announcementType = "subscribers";
+    } else if (data === "announce_one") {
+      // Ask the admin to enter the Telegram ID of the user
+      const message = await bot.sendMessage(
+        chatId,
+        "Введите Telegram ID пользователя, которому вы хотите отправить объявление:",
+        {
+          reply_markup: {
+            force_reply: true,
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+      bot.userData[chatId].expectingUserId = true; // Set the flag
     }
   } catch (error) {
     console.error("Ошибка при обработке callback_query:", error);
   }
 });
+
+// Handle messages for announcements
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+
+  if (bot.userData[chatId]?.expectingUserId) {
+    // The bot is expecting a Telegram ID for the announcement
+    const userId = msg.text.trim();
+
+    if (isNaN(userId)) {
+      // If the entered ID is not a number, ask again
+      bot.sendMessage(chatId, "Пожалуйста, введите корректный Telegram ID.");
+      return;
+    }
+
+    // Clear the flag
+    delete bot.userData[chatId].expectingUserId;
+
+    // Ask the admin to send the message for the announcement
+    const message = await bot.sendMessage(
+      chatId,
+      "Отправьте сообщение для объявления. Вы можете прикрепить изображение, видео или другой медиафайл.",
+      {
+        reply_markup: {
+          force_reply: true,
+        },
+      }
+    );
+    bot.userData[chatId].messageId = message.message_id;
+    bot.userData[chatId].announcementType = "one";
+    bot.userData[chatId].announcementUserId = userId; // Store the user ID
+  } else {
+    const announcementType = bot.userData[chatId]?.announcementType;
+
+    if (announcementType) {
+      let recipients = [];
+      let messageText = msg.text || msg.caption || ""; // Capture text or caption
+      let media = null;
+
+      if (msg.photo) {
+        // Handle photo messages
+        media = msg.photo[msg.photo.length - 1].file_id;
+      } else if (msg.video) {
+        // Handle video messages
+        media = msg.video.file_id;
+      }
+
+      if (announcementType === "all") {
+        // Send the announcement to all users
+        const { data: users, error } = await supabase
+          .from("usersa")
+          .select("telegram_id");
+
+        if (error) {
+          console.error("Ошибка при получении пользователей:", error);
+          return bot.sendMessage(
+            chatId,
+            "Произошла ошибка при получении пользователей."
+          );
+        }
+
+        recipients = users.map((user) => user.telegram_id);
+      } else if (announcementType === "subscribers") {
+        // Send the announcement to all subscribers
+        const { data: subscriptions, error } = await supabase
+          .from("subscriptions")
+          .select("user_id")
+          .eq("end_date", new Date().toISOString(), { operator: ">=" });
+
+        if (error) {
+          console.error("Ошибка при получении подписок:", error);
+          return bot.sendMessage(
+            chatId,
+            "Произошла ошибка при получении подписок."
+          );
+        }
+
+        const userIds = subscriptions.map((sub) => sub.user_id);
+        const { data: users, error: userError } = await supabase
+          .from("usersa")
+          .select("telegram_id")
+          .in("id", userIds);
+
+        if (userError) {
+          console.error("Ошибка при получении пользователей:", userError);
+          return bot.sendMessage(
+            chatId,
+            "Произошла ошибка при получении пользователей."
+          );
+        }
+
+        recipients = users.map((user) => user.telegram_id);
+      } else if (announcementType === "one") {
+        // Send the announcement to a specific user
+        recipients = [bot.userData[chatId].announcementUserId];
+      }
+
+      // Send the announcement message to the recipients
+      for (const recipient of recipients) {
+        try {
+          if (media) {
+            // Send media message with caption
+            await bot.sendPhoto(recipient, media, { caption: messageText });
+          } else {
+            // Send text message
+            await bot.sendMessage(recipient, messageText);
+          }
+        } catch (error) {
+          console.error(
+            `Ошибка при отправке сообщения пользователю с ID ${recipient}:`,
+            error
+          );
+        }
+      }
+
+      // Notify the admin that the announcement has been sent
+      bot.sendMessage(chatId, "Объявление успешно отправлено.");
+
+      // Clear the announcement type and user ID
+      delete bot.userData[chatId].announcementType;
+      delete bot.userData[chatId].announcementUserId;
+    }
+  }
+});
+
 
 
 async function confirmPayment(
@@ -1855,4 +2066,3 @@ app.post("/webhook/lava", async (req, res) => {
     res.status(200).send("Webhook received, but not processed");
   }
 });
-
