@@ -8,37 +8,28 @@ const schedule = require("node-schedule");
 const axios = require("axios");
 require("dotenv").config();
 
-// Настройка Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Настройка Telegram-бота
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
-
-// Инициализация userData
 bot.userData = {};
 
-// Настройка Express
 const app = express();
 const PORT = process.env.PORT || 3001;
 app.use(bodyParser.json());
 
-// Настройка CORS
 const corsOptions = {
   origin: ["http://localhost:3000", "https://baguvix-mini-app.vercel.app"],
   optionsSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
 
-// Массив Telegram ID администраторов
 const adminTelegramIds = ["5793122261", "292027815", "7518336354", "500726521"];
 
-// Авторизация через Telegram
 app.get("/auth/telegram", async (req, res) => {
   const { id, username, hash } = req.query;
-
   const { data, error } = await supabase
     .from("usersa")
     .select("*")
@@ -56,29 +47,20 @@ app.get("/auth/telegram", async (req, res) => {
         .json({ error: "Ошибка при создании пользователя" });
     }
 
-    return "login success";
+    return res.send("login success");
   }
 
   return res.json(data);
 });
 
-// Управление контентом
 app.get("/api/content/materials", async (req, res) => {
   const { format, category, search, sort } = req.query;
   let query = supabase.from("materials").select("*");
 
-  if (format) {
-    query = query.eq("format", format);
-  }
-  if (category) {
-    query = query.eq("category", category);
-  }
-  if (search) {
-    query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
-  }
-  if (sort) {
-    query = query.order(sort);
-  }
+  if (format) query = query.eq("format", format);
+  if (category) query = query.eq("category", category);
+  if (search) query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+  if (sort) query = query.order(sort);
 
   const { data, error } = await query;
 
@@ -143,11 +125,9 @@ app.delete("/api/admin/delete-material/:id", async (req, res) => {
   res.json(data);
 });
 
-// Управление подписками
 app.post("/api/subscription/subscribe", async (req, res) => {
   const { userId, level, duration } = req.body;
 
-  // Check for existing subscriptions and update or delete them
   const { data: existingSubscriptions, error: fetchError } = await supabase
     .from("subscriptions")
     .select("*")
@@ -158,7 +138,6 @@ app.post("/api/subscription/subscribe", async (req, res) => {
   }
 
   if (existingSubscriptions.length > 0) {
-    // Delete all existing subscriptions
     const { error: deleteError } = await supabase
       .from("subscriptions")
       .delete()
@@ -169,7 +148,6 @@ app.post("/api/subscription/subscribe", async (req, res) => {
     }
   }
 
-  // Create a new subscription
   const { data, error } = await supabase.from("subscriptions").insert([
     {
       user_id: userId,
@@ -243,7 +221,6 @@ app.post("/api/subscription/extend", async (req, res) => {
   res.json(data);
 });
 
-// Интеграция с Tinkoff Bank
 const tinkoffTerminalKey = process.env.TINKOFF_TERMINAL_KEY;
 const tinkoffPassword = process.env.TINKOFF_PASSWORD;
 
@@ -277,48 +254,37 @@ async function createPaymentLink(
   duration
 ) {
   const url = "https://securepay.tinkoff.ru/v2/Init";
-
-  // Generate a unique order ID
   const orderId = crypto.randomBytes(16).toString("hex");
-
-  // Generate unique agreementNumber and documentNumber
   const agreementNumber = `AGR-${userId}-${level}-${duration}`;
-  const documentNumber = Math.floor(100000 + Math.random() * 900000); // Random 6-digit number
-  const executionOrder = 5; // Default execution order
+  const documentNumber = Math.floor(100000 + Math.random() * 900000);
+  const executionOrder = 5;
 
-  // Receipt details
   const receipt = {
     Email: email,
-    Phone: "+79990000000", // You can add a phone number if available
-    Taxation: "osn", // Taxation system, e.g., "osn" for general taxation system
+    Phone: "+79990000000",
+    Taxation: "osn",
     Items: [
       {
         Name: "Subscription",
-        Price: amount * 100, // Amount in kopecks
+        Price: amount * 100,
         Quantity: 1.0,
-        Amount: amount * 100, // Amount in kopecks
-        Tax: "none", // Tax type, e.g., "vat0" for 0% VAT
+        Amount: amount * 100,
+        Tax: "none",
       },
     ],
   };
 
-  // Collect parameters for token generation
   const params = {
-    Amount: amount * 100, // Amount in kopecks
+    Amount: amount * 100,
     OrderId: orderId,
     Description: description,
     TerminalKey: tinkoffTerminalKey,
     Password: tinkoffPassword,
-    Recurrent: "Y", // Enable recurrent payments
+    Recurrent: "Y",
   };
 
-  // Sort parameters alphabetically by key
   const sortedKeys = Object.keys(params).sort();
-
-  // Concatenate values of sorted parameters
   const concatenatedValues = sortedKeys.map((key) => params[key]).join("");
-
-  // Calculate the token using SHA-256
   const token = crypto
     .createHash("sha256")
     .update(concatenatedValues)
@@ -327,14 +293,14 @@ async function createPaymentLink(
   const payload = {
     TerminalKey: tinkoffTerminalKey,
     Token: token,
-    Amount: amount * 100, // Amount in kopecks
+    Amount: amount * 100,
     OrderId: orderId,
     Description: description,
     DATA: {
       Email: email,
     },
-    Receipt: receipt, // Include the receipt object directly
-    Recurrent: "Y", // Enable recurrent payments
+    Receipt: receipt,
+    Recurrent: "Y",
   };
 
   try {
@@ -347,14 +313,13 @@ async function createPaymentLink(
     const paymentLink = response.data.PaymentURL;
     const paymentId = response.data.PaymentId;
 
-    // Store the generated values in the database
     await supabase
       .from("subscriptions")
       .update({
         agreement_number: agreementNumber,
         document_number: documentNumber,
         execution_order: executionOrder,
-        rebill_id: response.data.RebillId, // Store the RebillId
+        rebill_id: response.data.RebillId,
       })
       .eq("user_id", userId)
       .eq("level", level);
@@ -366,7 +331,6 @@ async function createPaymentLink(
   }
 }
 
-// Уведомления о подписке
 schedule.scheduleJob("0 0 * * *", async () => {
   const today = new Date();
   const threeDaysFromNow = new Date(today);
@@ -397,14 +361,13 @@ schedule.scheduleJob("0 0 * * *", async () => {
   });
 });
 
-// Автопродление подписки
 async function autoRenewSubscriptions() {
   const today = new Date();
   const { data, error } = await supabase
     .from("subscriptions")
     .select("*")
     .lte("end_date", today.toISOString())
-    .eq("auto_renew", true); // Assuming you have an auto_renew field
+    .eq("auto_renew", true);
 
   if (error) {
     console.error("Ошибка при получении подписок для автопродления", error);
@@ -413,7 +376,7 @@ async function autoRenewSubscriptions() {
 
   for (const subscription of data) {
     const newEndDate = new Date(subscription.end_date);
-    newEndDate.setMonth(newEndDate.getMonth() + 1); // Extend by 1 month
+    newEndDate.setMonth(newEndDate.getMonth() + 1);
 
     try {
       await initiateAutoRenewalPayment(
@@ -457,7 +420,7 @@ async function initiateAutoRenewalPayment(userId, level, duration) {
 
   const payload = {
     RebillId: subscription.rebill_id,
-    Amount: amount * 100, // Amount in kopecks
+    Amount: amount * 100,
   };
 
   try {
@@ -477,16 +440,15 @@ async function initiateAutoRenewalPayment(userId, level, duration) {
   }
 }
 
-// Периодическая проверка участников группы
 async function checkAllMembers() {
   const groups = [
     { id: -1002451832857, name: "Group" },
     { id: -1002306021477, name: "Channel" },
   ];
 
-  const concurrencyLimit = 3; // Reduce concurrency limit
-  const retryAttempts = 3; // Number of retry attempts
-  const retryDelay = 2000; // Initial retry delay in milliseconds
+  const concurrencyLimit = 3;
+  const retryAttempts = 3;
+  const retryDelay = 2000;
 
   try {
     const { data: members, error: membersError } = await supabase
@@ -504,18 +466,16 @@ async function checkAllMembers() {
       if (error?.response?.body?.parameters?.retry_after) {
         delay = error.response.body.parameters.retry_after * 1000;
       } else if (error?.code === 'ETIMEDOUT' && attempt < retryAttempts) {
-        delay = retryDelay * Math.pow(2, attempt); // Exponential backoff
+        delay = retryDelay * Math.pow(2, attempt);
       }
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
-    // Convert database users into a Set for fast lookup
     const dbUserIds = new Set(members.map((member) => member.telegram_id));
 
-    // Function to process a single member
     async function processMember(member, group, attempt = 1) {
       try {
-        await delayIfNeeded(null, attempt); // Ensure delay between bot calls if needed
+        await delayIfNeeded(null, attempt);
 
         let chatMember;
         try {
@@ -530,10 +490,9 @@ async function checkAllMembers() {
             await delayIfNeeded(error, attempt);
             return processMember(member, group, attempt + 1);
           }
-          throw error; // Rethrow unexpected errors
+          throw error;
         }
 
-        // If chatMember is undefined or user is not in the group, skip banning
         if (
           !chatMember ||
           ["left", "kicked"].includes(chatMember.status) ||
@@ -542,7 +501,6 @@ async function checkAllMembers() {
           return;
         }
 
-        // Check user's subscriptions
         const { data: subscriptions, error: subError } = await supabase
           .from("subscriptions")
           .select("id, user_id, level, end_date")
@@ -557,7 +515,6 @@ async function checkAllMembers() {
           return;
         }
 
-        // Determine the valid subscription with the highest level
         const validSubscription = subscriptions
           .filter((sub) => new Date(sub.end_date) >= new Date())
           .reduce(
@@ -566,7 +523,6 @@ async function checkAllMembers() {
             null
           );
 
-        // If the user has no valid subscription, remove them
         if (!validSubscription) {
           console.log(
             `Пользователь ${member.telegram_id} не имеет действующей подписки. Удаление из ${group.name}.`
@@ -580,7 +536,6 @@ async function checkAllMembers() {
           return;
         }
 
-        // Validate access based on subscription level
         if (validSubscription.level === 1 && group.name === "Group") {
           console.log(
             `Пользователь ${member.telegram_id} имеет подписку уровня 1. Удаление из ${group.name}.`
@@ -600,7 +555,6 @@ async function checkAllMembers() {
       }
     }
 
-    // Process members in chunks
     async function processChunk(chunk) {
       const promises = chunk.flatMap((member) =>
         groups.map((group) => processMember(member, group))
@@ -608,39 +562,30 @@ async function checkAllMembers() {
       await Promise.all(promises);
     }
 
-    // Split members into chunks
     const chunkSize = Math.ceil(members.length / concurrencyLimit);
     const chunks = Array.from({ length: concurrencyLimit }, (_, i) =>
       members.slice(i * chunkSize, (i + 1) * chunkSize)
     );
 
-    // Process all chunks concurrently
     await Promise.all(chunks.map(processChunk));
 
-    // Schedule the next execution after 1 minute
     setTimeout(checkAllMembers, 60000);
   } catch (error) {
     console.error("Ошибка при проверке участников:", error);
-    // Retry after 1 minute in case of error
     setTimeout(checkAllMembers, 60000);
   }
 }
 
 checkAllMembers();
 
-
-// Handle new members joining the group or channel
 bot.on("new_chat_members", async (msg) => {
   const chatId = msg.chat.id;
   const newMembers = msg.new_chat_members;
 
   for (const member of newMembers) {
     const userId = member.id;
-
-    // Delete the join notification message
     await bot.deleteMessage(chatId, msg.message_id);
 
-    // Check if the user has the required subscription level
     const { data: user, error: userError } = await supabase
       .from("usersa")
       .select("id")
@@ -689,18 +634,14 @@ bot.on("new_chat_members", async (msg) => {
   }
 });
 
-// Запуск сервера
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
 });
 
-// Вызов функции автопродления каждый день
 schedule.scheduleJob("0 0 * * *", async () => {
   await autoRenewSubscriptions();
 });
 
-
-// Telegram-бот
 const prices = {
   level_1: {
     1: 1490,
@@ -721,8 +662,6 @@ const lavaApiKey =
 
 async function createLavaPaymentLink(userId, level, duration) {
   const url = "https://gate.lava.top/api/v2/invoice";
-  console.log(userId, level, duration);
-
   const payload = {
     email: `${userId}a@${level}a${duration}.com`,
     offerId:
@@ -748,13 +687,11 @@ async function createLavaPaymentLink(userId, level, duration) {
   }
 }
 
-// Add a "Subscribe" button before level selection
 const subscribeButton = [{ text: "Подписаться", callback_data: "subscribe" }];
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
 
-  // Fetch user data from the database
   let { data: user, error: userError } = await supabase
     .from("usersa")
     .select("id")
@@ -762,7 +699,6 @@ bot.onText(/\/start/, async (msg) => {
     .single();
 
   if (userError && userError.code === "PGRST116") {
-    // User not found, insert new user
     await supabase.from("usersa").insert([
       {
         telegram_id: chatId,
@@ -772,7 +708,6 @@ bot.onText(/\/start/, async (msg) => {
       },
     ]);
 
-    // Fetch the newly inserted user data
     const { data: newUser } = await supabase
       .from("usersa")
       .select("id")
@@ -782,7 +717,6 @@ bot.onText(/\/start/, async (msg) => {
     user = newUser;
   }
 
-  // Fetch the user's subscription status
   const { data: subscription, error: subscriptionError } = await supabase
     .from("subscriptions")
     .select("*")
@@ -838,7 +772,7 @@ bot.onText(/\/start/, async (msg) => {
 
   if (subscription && new Date(subscription.end_date) >= new Date()) {
     const userIsAdmin = await isUserAdmin(-1002306021477, chatId);
-    const userIsAdminc = await isUserAdmin(-1002306021477, chatId);
+    const userIsAdminc = await isUserAdmin(-1002451832857, chatId);
     if (subscription.level === 1 && !userIsAdmin) {
       await bot.unbanChatMember(-1002306021477, chatId);
       const channelLink = await bot.createChatInviteLink(-1002306021477, {
@@ -875,7 +809,6 @@ bot.onText(/\/start/, async (msg) => {
     }
   }
 
-  // Send the start message
   try {
     const message = await bot.sendVideo(
       chatId,
@@ -894,7 +827,6 @@ bot.onText(/\/start/, async (msg) => {
   }
 });
 
-// Handle callback queries
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -909,7 +841,6 @@ bot.on("callback_query", async (query) => {
     await bot.deleteMessage(chatId, messageId);
 
     if (data === "subscribe") {
-      // Show subscription options
       const message = await bot.sendMessage(
         chatId,
         "Выберите уровень подписки:",
@@ -927,7 +858,6 @@ bot.on("callback_query", async (query) => {
     } else if (data === "level_1" || data === "level_2") {
       const level = data.split("_")[1];
 
-      // Show the agreement message
       const message = await bot.sendMessage(
         chatId,
         "Пожалуйста, ознакомьтесь с условиями подписки: [Соглашение с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14).\n\nВы согласны с условиями?",
@@ -944,7 +874,6 @@ bot.on("callback_query", async (query) => {
     } else if (data.startsWith("agree_")) {
       const level = data.split("_")[1];
 
-      // Fetch the user's subscription status
       const { data: user, error: userError } = await supabase
         .from("usersa")
         .select("id")
@@ -969,17 +898,14 @@ bot.on("callback_query", async (query) => {
           .single();
 
         if (subscriptionError && subscriptionError.code === "PGRST116") {
-          // Handle error if needed
         }
 
-        // Check if the user has an active subscription
         if (subscription && new Date(subscription.end_date) >= new Date()) {
           const expiryDate = new Date(
             subscription.end_date
           ).toLocaleDateString();
 
           if (subscription.level === parseInt(level)) {
-            // User already has the selected subscription level
             const message = await bot.sendMessage(
               chatId,
               `У вас уже есть подписка на Уровень ${level}, которая истекает ${expiryDate}.\n\nВыберите срок продления:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
@@ -988,7 +914,7 @@ bot.on("callback_query", async (query) => {
                   inline_keyboard: [
                     [
                       {
-                        text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
+                        text: `1 месяц - ${prices[`level_${                        level}`][1]} руб`,
                         callback_data: `extend_1_${level}`,
                       },
                     ],
@@ -1017,7 +943,6 @@ bot.on("callback_query", async (query) => {
             );
             bot.userData[chatId].messageId = message.message_id;
           } else if (subscription.level === 2) {
-            // User has the highest subscription level
             const message = await bot.sendMessage(
               chatId,
               `У вас уже есть подписка на Уровень 2, которая включает все уровни и истекает ${expiryDate}.\n\nВыберите срок продления:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
@@ -1055,7 +980,6 @@ bot.on("callback_query", async (query) => {
             );
             bot.userData[chatId].messageId = message.message_id;
           } else {
-            // User has a lower subscription level, allow upgrade
             const message = await bot.sendMessage(
               chatId,
               `Выберите способ оплаты:`,
@@ -1082,7 +1006,6 @@ bot.on("callback_query", async (query) => {
             bot.userData[chatId].messageId = message.message_id;
           }
         } else {
-          // User does not have an active subscription, allow subscription
           const message = await bot.sendMessage(
             chatId,
             `Выберите способ оплаты:`,
@@ -1109,7 +1032,6 @@ bot.on("callback_query", async (query) => {
           bot.userData[chatId].messageId = message.message_id;
         }
       } else {
-        // User is new and not in the database
         const message = await bot.sendMessage(
           chatId,
           `Выберите способ оплаты:`,
@@ -1131,7 +1053,6 @@ bot.on("callback_query", async (query) => {
         bot.userData[chatId].messageId = message.message_id;
       }
     } else if (data === "disagree") {
-      // Return to the main menu
       const message = await bot.sendVideo(
         chatId,
         "https://v.mover.uz/hC8FBeYZ_h.mp4",
@@ -1177,7 +1098,6 @@ bot.on("callback_query", async (query) => {
     } else if (data.startsWith("russian_cards_")) {
       const level = data.split("_")[2];
 
-      // Show the duration selection for Russian cards
       const message = await bot.sendMessage(
         chatId,
         `Выберите срок подписки для Уровня ${level}:\n\nПеред оформлением подписки, пожалуйста, ознакомьтесь с [Соглашением с условиями подписки](https://telegra.ph/Soglashenie-s-usloviyami-podpiski-03-14). Оплачивая подписку, вы соглашаетесь с этими условиями.`,
@@ -1217,7 +1137,6 @@ bot.on("callback_query", async (query) => {
     } else if (data.startsWith("foreign_cards_")) {
       const level = data.split("_")[2];
 
-      // Generate payment link using Lava.top API
       const paymentLink = await createLavaPaymentLink(chatId, level, 1);
 
       const message = await bot.sendMessage(
@@ -1324,7 +1243,7 @@ bot.on("callback_query", async (query) => {
                 text: "Сделать объявление",
                 callback_data: "make_announcement",
               },
-            ], // New button for making announcements
+            ],
           ],
         },
       });
@@ -1429,7 +1348,7 @@ bot.on("callback_query", async (query) => {
                     callback_data: "cancel_auto_renew",
                   },
                 ],
-                [{ text: "Назад", callback_data: "back_to_main" }], // Added "Назад" button
+                [{ text: "Назад", callback_data: "back_to_main" }],
               ],
             },
           }
@@ -1445,7 +1364,7 @@ bot.on("callback_query", async (query) => {
               inline_keyboard: [
                 [{ text: "Уровень 1", callback_data: "level_1" }],
                 [{ text: "Уровень 2", callback_data: "level_2" }],
-                [{ text: "Назад", callback_data: "back_to_main" }], // Added "Назад" button
+                [{ text: "Назад", callback_data: "back_to_main" }],
               ],
             },
           }
@@ -1539,7 +1458,6 @@ bot.on("callback_query", async (query) => {
 
         bot.userData[chatId].messageId = message.message_id;
 
-        // Check payment status every second
         const checkPaymentInterval = setInterval(async () => {
           try {
             const confirmation = await confirmPayment(
@@ -1602,13 +1520,13 @@ bot.on("callback_query", async (query) => {
               );
 
               bot.userData[chatId].messageId = message.message_id;
-              // logic to update the user's subscription status
+
               const { data: user, error: usererror } = await supabase
                 .from("usersa")
                 .select("*")
                 .eq("telegram_id", chatId)
                 .single();
-              // Update the subscription status in your database
+
               const { data: subscription, error: fetchError } = await supabase
                 .from("subscriptions")
                 .select("*")
@@ -1643,7 +1561,10 @@ bot.on("callback_query", async (query) => {
                   .eq("id", subscription.id);
 
                 if (updateError) {
-                  console.error("Error updating subscription:", updateError);
+                  console.error(
+                    "Error updating subscription:",
+                    updateError
+                  );
                   return res.status(500).send("Error updating subscription");
                 }
               }
@@ -1664,7 +1585,6 @@ bot.on("callback_query", async (query) => {
         console.log(error);
       }
     } else if (data === "make_announcement") {
-      // Ask the admin to choose the audience for the announcement
       const message = await bot.sendMessage(
         chatId,
         "Выберите аудиторию для объявления:",
@@ -1681,7 +1601,6 @@ bot.on("callback_query", async (query) => {
       );
       bot.userData[chatId].messageId = message.message_id;
     } else if (data === "announce_all") {
-      // Ask the admin to send the message for the announcement
       const message = await bot.sendMessage(
         chatId,
         "Отправьте сообщение для объявления. Вы можете прикрепить изображение, видео или другой медиафайл.",
@@ -1694,7 +1613,6 @@ bot.on("callback_query", async (query) => {
       bot.userData[chatId].messageId = message.message_id;
       bot.userData[chatId].announcementType = "all";
     } else if (data === "announce_subscribers") {
-      // Ask the admin to send the message for the announcement
       const message = await bot.sendMessage(
         chatId,
         "Отправьте сообщение для объявления. Вы можете прикрепить изображение, видео или другой медиафайл.",
@@ -1707,7 +1625,6 @@ bot.on("callback_query", async (query) => {
       bot.userData[chatId].messageId = message.message_id;
       bot.userData[chatId].announcementType = "subscribers";
     } else if (data === "announce_one") {
-      // Ask the admin to enter the Telegram ID of the user
       const message = await bot.sendMessage(
         chatId,
         "Введите Telegram ID пользователя, которому вы хотите отправить объявление:",
@@ -1718,31 +1635,26 @@ bot.on("callback_query", async (query) => {
         }
       );
       bot.userData[chatId].messageId = message.message_id;
-      bot.userData[chatId].expectingUserId = true; // Set the flag
+      bot.userData[chatId].expectingUserId = true;
     }
   } catch (error) {
     console.error("Ошибка при обработке callback_query:", error);
   }
 });
 
-// Handle messages for announcements
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
 
   if (bot.userData[chatId]?.expectingUserId) {
-    // The bot is expecting a Telegram ID for the announcement
     const userId = msg.text.trim();
 
     if (isNaN(userId)) {
-      // If the entered ID is not a number, ask again
       bot.sendMessage(chatId, "Пожалуйста, введите корректный Telegram ID.");
       return;
     }
 
-    // Clear the flag
     delete bot.userData[chatId].expectingUserId;
 
-    // Ask the admin to send the message for the announcement
     const message = await bot.sendMessage(
       chatId,
       "Отправьте сообщение для объявления. Вы можете прикрепить изображение, видео или другой медиафайл.",
@@ -1754,25 +1666,22 @@ bot.on("message", async (msg) => {
     );
     bot.userData[chatId].messageId = message.message_id;
     bot.userData[chatId].announcementType = "one";
-    bot.userData[chatId].announcementUserId = userId; // Store the user ID
+    bot.userData[chatId].announcementUserId = userId;
   } else {
     const announcementType = bot.userData[chatId]?.announcementType;
 
     if (announcementType) {
       let recipients = [];
-      let messageText = msg.text || msg.caption || ""; // Capture text or caption
+      let messageText = msg.text || msg.caption || "";
       let media = null;
 
       if (msg.photo) {
-        // Handle photo messages
         media = msg.photo[msg.photo.length - 1].file_id;
       } else if (msg.video) {
-        // Handle video messages
         media = msg.video.file_id;
       }
 
       if (announcementType === "all") {
-        // Send the announcement to all users
         const { data: users, error } = await supabase
           .from("usersa")
           .select("telegram_id");
@@ -1787,11 +1696,10 @@ bot.on("message", async (msg) => {
 
         recipients = users.map((user) => user.telegram_id);
       } else if (announcementType === "subscribers") {
-        // Send the announcement to all subscribers
         const { data: subscriptions, error } = await supabase
           .from("subscriptions")
           .select("user_id")
-          .eq("end_date", new Date().toISOString(), { operator: ">=" });
+          .gte("end_date", new Date());
 
         if (error) {
           console.error("Ошибка при получении подписок:", error);
@@ -1817,18 +1725,14 @@ bot.on("message", async (msg) => {
 
         recipients = users.map((user) => user.telegram_id);
       } else if (announcementType === "one") {
-        // Send the announcement to a specific user
         recipients = [bot.userData[chatId].announcementUserId];
       }
 
-      // Send the announcement message to the recipients
       for (const recipient of recipients) {
         try {
           if (media) {
-            // Send media message with caption
             await bot.sendPhoto(recipient, media, { caption: messageText });
           } else {
-            // Send text message
             await bot.sendMessage(recipient, messageText);
           }
         } catch (error) {
@@ -1839,10 +1743,8 @@ bot.on("message", async (msg) => {
         }
       }
 
-      // Notify the admin that the announcement has been sent
       bot.sendMessage(chatId, "Объявление успешно отправлено.");
 
-      // Clear the announcement type and user ID
       delete bot.userData[chatId].announcementType;
       delete bot.userData[chatId].announcementUserId;
     }
@@ -1857,10 +1759,7 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, us
     PaymentId: paymentId,
   };
 
-  // Create a string for token generation
   const tokenString = `${tinkoffPassword}${paymentId}${tinkoffTerminalKey}`;
-
-  // Generate the token
   payload.Token = crypto.createHash("sha256").update(tokenString).digest("hex");
 
   try {
@@ -1904,7 +1803,6 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, us
         success = true;
         message = "Payment is fully confirmed.";
 
-        // Update or create the subscription in the database
         const { data: subscription, error: fetchError } = await supabase
           .from("subscriptions")
           .select("*")
@@ -1929,7 +1827,7 @@ async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, us
                 level: level,
                 start_date: new Date(),
                 end_date: newEndDate,
-                auto_renew: true, // Assuming auto-renew is enabled by default
+                auto_renew: true,
               },
             ]);
         } else {
@@ -1997,15 +1895,13 @@ const sentLinks = {};
 
 app.post("/webhook/lava", async (req, res) => {
   const event = req.body;
-
-  // Log the webhook data
   console.log("Webhook event data:", event);
 
   if (event.eventType === "payment.success") {
     function extractDetails(email) {
       const [userId, rest] = email.split("a@");
       const [level, durationWithDomain] = rest.split("a");
-      const duration = durationWithDomain.split(".com")[0]; // Remove '.com'
+      const duration = durationWithDomain.split(".com")[0];
 
       return {
         userId: Number(userId),
@@ -2059,7 +1955,6 @@ app.post("/webhook/lava", async (req, res) => {
       .eq("telegram_id", userId)
       .single();
 
-    // Update the subscription status in your database
     const { data: subscription, error: fetchError } = await supabase
       .from("subscriptions")
       .select("*")
