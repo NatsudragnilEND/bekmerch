@@ -332,33 +332,8 @@ async function createPaymentLink(
 }
 
 schedule.scheduleJob("0 0 * * *", async () => {
-  const today = new Date();
-  const threeDaysFromNow = new Date(today);
-  threeDaysFromNow.setDate(today.getDate() + 3);
-
-  const todayISO = today.toISOString();
-  const threeDaysFromNowISO = threeDaysFromNow.toISOString();
-
-  const { data, error } = await supabase
-    .from("subscriptions")
-    .select("*")
-    .lte("end_date", threeDaysFromNowISO)
-    .gte("end_date", todayISO);
-
-  if (error) {
-    console.error("Ошибка при получении подписок для уведомлений", error);
-    return;
-  }
-
-  data.forEach((subscription) => {
-    const daysLeft = Math.ceil(
-      (new Date(subscription.end_date) - new Date()) / (1000 * 60 * 60 * 24)
-    );
-    bot.sendMessage(
-      subscription.user_id,
-      `Ваша подписка истекает через ${daysLeft} дня(ей). Продлите подписку, чтобы не потерять доступ к контенту.`
-    );
-  });
+  await autoRenewSubscriptions();
+  await checkAllMembers();
 });
 
 async function autoRenewSubscriptions() {
@@ -548,7 +523,7 @@ async function checkAllMembers() {
           }, 1000);
         }
       } catch (error) {
-        
+        console.error("Ошибка при проверке участников:", error);
       }
     }
 
@@ -565,15 +540,10 @@ async function checkAllMembers() {
     );
 
     await Promise.all(chunks.map(processChunk));
-
-    setTimeout(checkAllMembers, 60000);
   } catch (error) {
     console.error("Ошибка при проверке участников:", error);
-    setTimeout(checkAllMembers, 60000);
   }
 }
-
-checkAllMembers();
 
 bot.on("new_chat_members", async (msg) => {
   const chatId = msg.chat.id;
@@ -633,10 +603,6 @@ bot.on("new_chat_members", async (msg) => {
 
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
-});
-
-schedule.scheduleJob("0 0 * * *", async () => {
-  await autoRenewSubscriptions();
 });
 
 const prices = {
@@ -911,7 +877,7 @@ bot.on("callback_query", async (query) => {
                   inline_keyboard: [
                     [
                       {
-                        text: `1 месяц - ${prices[`level_${                        level}`][1]} руб`,
+                        text: `1 месяц - ${prices[`level_${level}`][1]} руб`,
                         callback_data: `extend_1_${level}`,
                       },
                     ],
