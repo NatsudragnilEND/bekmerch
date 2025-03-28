@@ -158,6 +158,7 @@ app.post("/api/subscription/subscribe", async (req, res) => {
   ]);
 
   if (error) {
+    console.log(error);
     return res.status(500).json({ error: "Ошибка при создании подписки" });
   }
 
@@ -354,20 +355,28 @@ async function autoRenewSubscriptions() {
     newEndDate.setMonth(newEndDate.getMonth() + 1);
 
     try {
-      await initiateAutoRenewalPayment(
+      const paymentResult = await initiateAutoRenewalPayment(
         subscription.user_id,
         subscription.level,
         1
       );
-      await supabase
-        .from("subscriptions")
-        .update({ end_date: newEndDate })
-        .eq("id", subscription.id);
 
-      bot.sendMessage(
-        subscription.user_id,
-        `Ваша подписка была автоматически продлена до ${newEndDate.toLocaleDateString()}.`
-      );
+      if (paymentResult.success) {
+        await supabase
+          .from("subscriptions")
+          .update({ end_date: newEndDate })
+          .eq("id", subscription.id);
+
+        bot.sendMessage(
+          subscription.user_id,
+          `Ваша подписка была автоматически продлена до ${newEndDate.toLocaleDateString()}.`
+        );
+      } else {
+        bot.sendMessage(
+          subscription.user_id,
+          "Произошла ошибка при автопродлении подписки. Пожалуйста, свяжитесь с поддержкой."
+        );
+      }
     } catch (paymentError) {
       console.error("Ошибка при автопродлении подписки:", paymentError);
       bot.sendMessage(
@@ -408,7 +417,7 @@ async function initiateAutoRenewalPayment(userId, level, duration) {
         },
       }
     );
-    return response.data;
+    return { success: true, data: response.data };
   } catch (error) {
     console.error("Error charging recurrent payment:", error);
     throw error;
