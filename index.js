@@ -747,9 +747,11 @@ bot.onText(/\/start/, async (msg) => {
     const userIsAdminc = await isUserAdmin(-1002451832857, chatId);
     if (subscription.level === 1 && !userIsAdmin) {
       await bot.unbanChatMember(-1002306021477, chatId);
+      const expireDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
       const channelLink = await bot.createChatInviteLink(-1002306021477, {
         name: "Channel_Invite",
-        expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+        expire_date: expireDate,
+        creates_join_request: true,
       });
       inlineKeyboard.push([
         {
@@ -760,14 +762,19 @@ bot.onText(/\/start/, async (msg) => {
     } else if (subscription.level === 2) {
       if (!userIsAdmin) await bot.unbanChatMember(-1002306021477, chatId);
       if (!userIsAdminc) await bot.unbanChatMember(-1002451832857, chatId);
-      const channelLink = await bot.createChatInviteLink(-1002306021477, {
-        name: "Channel_Invite",
-        expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
-      });
-      const chatLink = await bot.createChatInviteLink(-1002451832857, {
-        name: "Chat_Invite",
-        expire_date: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
-      });
+      const expireDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+const channelLink = await bot.createChatInviteLink(-1002306021477, {
+  name: "Channel_Invite",
+  expire_date: expireDate,
+  creates_join_request: true,
+});
+
+const chatLink = await bot.createChatInviteLink(-1002451832857, {
+  name: "Chat_Invite",
+  expire_date: expireDate,
+  creates_join_request: true,
+});
+
       inlineKeyboard.push([
         {
           text: "Ссылка на закрытый канал",
@@ -1446,33 +1453,29 @@ bot.on("callback_query", async (query) => {
               const expireDate =
                 Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
               if (level === "1") {
-                const channelLink = await bot.createChatInviteLink(
-                  -1002306021477,
-                  {
-                    name: "Channel_Invite",
-                    expire_date: expireDate,
-                  }
-                );
+                const channelLink = await bot.createChatInviteLink(-1002306021477, {
+                  name: "Channel_Invite",
+                  expire_date: expireDate,
+                  creates_join_request: true,
+                });
 
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}`
                 );
               } else if (level === "2") {
-                const channelLink = await bot.createChatInviteLink(
-                  -1002306021477,
-                  {
-                    name: "Channel_Invite",
-                    expire_date: expireDate,
-                  }
-                );
-                const chatLink = await bot.createChatInviteLink(
-                  -1002451832857,
-                  {
-                    name: "Chat_Invite",
-                    expire_date: expireDate,
-                  }
-                );
+                const channelLink = await bot.createChatInviteLink(-1002306021477, {
+                  name: "Channel_Invite",
+                  expire_date: expireDate,
+                  creates_join_request: true,
+                });
+                
+                const chatLink = await bot.createChatInviteLink(-1002451832857, {
+                  name: "Chat_Invite",
+                  expire_date: expireDate,
+                  creates_join_request: true,
+                });
+                
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
@@ -1722,7 +1725,64 @@ bot.on("message", async (msg) => {
     }
   }
 });
+bot.on("chat_join_request", async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
 
+  const { data: user, error: userError } = await supabase
+    .from("usersa")
+    .select("id")
+    .eq("telegram_id", userId)
+    .single();
+
+  if (userError) {
+    console.error("Ошибка при получении пользователя", userError);
+    await bot.declineChatJoinRequest(chatId, userId);
+    return;
+  }
+
+  const { data: subscription, error: subscriptionError } = await supabase
+    .from("subscriptions")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("end_date", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (subscriptionError || !subscription || new Date(subscription.end_date) < new Date()) {
+    await bot.declineChatJoinRequest(chatId, userId);
+    return;
+  }
+
+  if (chatId === -1002306021477 && subscription.level < 1) {
+    await bot.declineChatJoinRequest(chatId, userId);
+  } else if (chatId === -1002451832857 && subscription.level < 2) {
+    await bot.declineChatJoinRequest(chatId, userId);
+  } else {
+    await bot.approveChatJoinRequest(chatId, userId);
+  }
+});
+const sendlinks = async () => {
+  const expireDate =
+  Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+  const channelLink = await bot.createChatInviteLink(-1002306021477, {
+    name: "Channel_Invite",
+    expire_date: expireDate,
+    creates_join_request: true,
+  });
+  
+  const chatLink = await bot.createChatInviteLink(-1002451832857, {
+    name: "Chat_Invite",
+    expire_date: expireDate,
+    creates_join_request: true,
+  });
+  
+  bot.sendMessage(
+    5793122261,
+    `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
+  );
+}
+sendlinks()
 async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, userId, level, duration) {
   const url = "https://securepay.tinkoff.ru/v2/GetState";
 
@@ -1893,6 +1953,7 @@ app.post("/webhook/lava", async (req, res) => {
       const channelLink = await bot.createChatInviteLink(-1002306021477, {
         name: "Channel_Invite",
         expire_date: expireDate,
+        creates_join_request: true,
       });
 
       bot.sendMessage(
@@ -1901,14 +1962,18 @@ app.post("/webhook/lava", async (req, res) => {
       );
       sentLinks[userId].channel = true;
     } else if (level === 2 && !sentLinks[userId].chat) {
-      const channelLink = await bot.createChatInviteLink(-1002306021477, {
-        name: "Channel_Invite",
-        expire_date: expireDate,
-      });
-      const chatLink = await bot.createChatInviteLink(-1002451832857, {
-        name: "Chat_Invite",
-        expire_date: expireDate,
-      });
+const channelLink = await bot.createChatInviteLink(-1002306021477, {
+  name: "Channel_Invite",
+  expire_date: expireDate,
+  creates_join_request: true,
+});
+
+const chatLink = await bot.createChatInviteLink(-1002451832857, {
+  name: "Chat_Invite",
+  expire_date: expireDate,
+  creates_join_request: true,
+});
+
       bot.sendMessage(
         userId,
         `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
