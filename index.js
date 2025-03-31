@@ -556,56 +556,58 @@ async function checkAllMembers() {
 
 bot.on("new_chat_members", async (msg) => {
   const chatId = msg.chat.id;
-  const newMembers = msg.new_chat_members;
+  const newMember = msg.new_chat_members[0]; // Assuming only one new member joins at a time
+  const userId = newMember.id;
 
-  for (const member of newMembers) {
-    const userId = member.id;
-    await bot.deleteMessage(chatId, msg.message_id);
+  await bot.deleteMessage(chatId, msg.message_id);
 
-    const { data: user, error: userError } = await supabase
-      .from("usersa")
-      .select("id")
-      .eq("telegram_id", userId)
-      .single();
+  // Check if the user exists in the database
+  const { data: user, error: userError } = await supabase
+    .from("usersa")
+    .select("id")
+    .eq("telegram_id", userId)
+    .single();
 
-    if (userError) {
-      console.error("Ошибка при получении пользователя", userError);
+  if (userError) {
+    console.error("Ошибка при получении пользователя", userError);
+    await bot.banChatMember(chatId, userId);
+    setTimeout(async () => {
+      await bot.unbanChatMember(chatId, userId);
+    }, 1000);
+    return;
+  }
+
+  // Check if the user has an active subscription
+  const { data: subscriptions, error: subscriptionError } = await supabase
+    .from("subscriptions")
+    .select("*")
+    .eq("user_id", user.id)
+    .gte("end_date", new Date().toISOString())
+    .order("level", { ascending: false });
+
+  if (subscriptionError || !subscriptions.length) {
+    await bot.banChatMember(chatId, userId);
+    setTimeout(async () => {
+      await bot.unbanChatMember(chatId, userId);
+    }, 1000);
+  } else {
+    const highestLevelSubscription = subscriptions[0];
+
+    // Check if the user's subscription level meets the chat's requirements
+    if (chatId === -1002306021477 && highestLevelSubscription.level < 1) {
       await bot.banChatMember(chatId, userId);
       setTimeout(async () => {
         await bot.unbanChatMember(chatId, userId);
       }, 1000);
-      continue;
-    }
-
-    const { data: subscriptions, error: subscriptionError } = await supabase
-      .from("subscriptions")
-      .select("*")
-      .eq("user_id", user.id)
-      .gte("end_date", new Date().toISOString())
-      .order("level", { ascending: false });
-
-    if (subscriptionError || !subscriptions.length) {
+    } else if (chatId === -1002451832857 && highestLevelSubscription.level < 2) {
       await bot.banChatMember(chatId, userId);
       setTimeout(async () => {
         await bot.unbanChatMember(chatId, userId);
       }, 1000);
-    } else {
-      const highestLevelSubscription = subscriptions[0];
-
-      if (chatId === -1002306021477 && highestLevelSubscription.level < 1) {
-        await bot.banChatMember(chatId, userId);
-        setTimeout(async () => {
-          await bot.unbanChatMember(chatId, userId);
-        }, 1000);
-      } else if (chatId === -1002451832857 && highestLevelSubscription.level < 2) {
-        await bot.banChatMember(chatId, userId);
-        setTimeout(async () => {
-          await bot.unbanChatMember(chatId, userId);
-        }, 1000);
-      }
     }
   }
 });
+
 
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
@@ -1553,8 +1555,7 @@ bot.on("callback_query", async (query) => {
               if (subscription) {
                 newEndDate = new Date(subscription.end_date);
               }
-              newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
-
+              newEndDate.setMonth(newEndDate.getMonth() + duration);
               if (fetchError) {
                 const { error: insertError } = await supabase
                   .from("subscriptions")
