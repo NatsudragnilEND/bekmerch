@@ -607,7 +607,6 @@ bot.on("new_chat_members", async (msg) => {
   }
 });
 
-
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
 });
@@ -1656,7 +1655,6 @@ bot.on("callback_query", async (query) => {
   }
 });
 
-
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
 
@@ -1797,7 +1795,15 @@ bot.on("message", async (msg) => {
       const messageText = msg.text || msg.caption || "";
 
       try {
-        await bot.sendMessage(userId, `Ответ от тех. поддержки:\n${messageText}`);
+        if (msg.photo) {
+          const media = msg.photo[msg.photo.length - 1].file_id;
+          await bot.sendPhoto(userId, media, { caption: messageText });
+        } else if (msg.video) {
+          const media = msg.video.file_id;
+          await bot.sendVideo(userId, media, { caption: messageText });
+        } else {
+          await bot.sendMessage(userId, `Ответ от тех. поддержки:\n${messageText}`);
+        }
         bot.sendMessage(chatId, "Ваш ответ отправлен пользователю.");
       } catch (error) {
         console.error(`Ошибка при отправке сообщения пользователю с ID ${userId}:`, error);
@@ -1807,8 +1813,6 @@ bot.on("message", async (msg) => {
     }
   }
 });
-
-
 
 bot.on("chat_join_request", async (msg) => {
   const chatId = msg.chat.id;
@@ -2121,4 +2125,3 @@ const chatLink = await bot.createChatInviteLink(-1002451832857, {
     res.status(200).send("Webhook received, but not processed");
   }
 });
-
