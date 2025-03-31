@@ -1799,7 +1799,7 @@ bot.on("message", async (msg) => {
       const messageText = msg.text || msg.caption || "";
 
       try {
-        await bot.sendMessage(userId, `Ответ от администратора:\n${messageText}`);
+        await bot.sendMessage(userId, `Ответ от тех. поддержки:\n${messageText}`);
         bot.sendMessage(chatId, "Ваш ответ отправлен пользователю.");
       } catch (error) {
         console.error(`Ошибка при отправке сообщения пользователю с ID ${userId}:`, error);
