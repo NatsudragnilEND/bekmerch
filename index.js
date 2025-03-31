@@ -1814,6 +1814,8 @@ bot.on("message", async (msg) => {
   }
 });
 
+
+
 bot.on("chat_join_request", async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
