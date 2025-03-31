@@ -821,17 +821,16 @@ bot.on("callback_query", async (query) => {
   try {
     await bot.deleteMessage(chatId, messageId);
 
-    if (data === "subscribe") {
+    if (data.startsWith("reply_")) {
+      const userId = data.split("_")[1];
+      bot.userData[chatId].replyToUserId = userId;
+
       const message = await bot.sendMessage(
         chatId,
-        "Выберите уровень подписки:",
+        "Введите ваш ответ:",
         {
           reply_markup: {
-            inline_keyboard: [
-              [{ text: "Уровень 1", callback_data: "level_1" }],
-              [{ text: "Уровень 2", callback_data: "level_2" }],
-              [{ text: "Назад", callback_data: "back_to_main" }],
-            ],
+            force_reply: true,
           },
         }
       );
@@ -864,6 +863,21 @@ bot.on("callback_query", async (query) => {
       );
       bot.userData[chatId].messageId = message.message_id;
       bot.userData[chatId].messageType = messageType;
+    } else if (data === "subscribe") {
+      const message = await bot.sendMessage(
+        chatId,
+        "Выберите уровень подписки:",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Уровень 1", callback_data: "level_1" }],
+              [{ text: "Уровень 2", callback_data: "level_2" }],
+              [{ text: "Назад", callback_data: "back_to_main" }],
+            ],
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
     } else if (data === "level_1" || data === "level_2") {
       const level = data.split("_")[1];
 
@@ -1644,6 +1658,7 @@ bot.on("callback_query", async (query) => {
   }
 });
 
+
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
 
@@ -1757,9 +1772,16 @@ bot.on("message", async (msg) => {
 
       for (const adminId of adminTelegramIds) {
         try {
+          const replyKeyboard = {
+            inline_keyboard: [
+              [{ text: "Ответить", callback_data: `reply_${chatId}` }],
+            ],
+          };
+
           await bot.sendMessage(
             adminId,
-            `Пользователь ${chatId} ${messageTypeText}:\n${messageText}`
+            `Пользователь ${chatId} ${messageTypeText}:\n${messageText}`,
+            { reply_markup: replyKeyboard }
           );
         } catch (error) {
           console.error(
@@ -1772,9 +1794,23 @@ bot.on("message", async (msg) => {
       bot.sendMessage(chatId, "Ваше сообщение отправлено тех. поддержке.");
 
       delete bot.userData[chatId].messageType;
+    } else if (bot.userData[chatId]?.replyToUserId) {
+      const userId = bot.userData[chatId].replyToUserId;
+      const messageText = msg.text || msg.caption || "";
+
+      try {
+        await bot.sendMessage(userId, `Ответ от администратора:\n${messageText}`);
+        bot.sendMessage(chatId, "Ваш ответ отправлен пользователю.");
+      } catch (error) {
+        console.error(`Ошибка при отправке сообщения пользователю с ID ${userId}:`, error);
+      }
+
+      delete bot.userData[chatId].replyToUserId;
     }
   }
 });
+
+
 
 bot.on("chat_join_request", async (msg) => {
   const chatId = msg.chat.id;
