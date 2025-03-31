@@ -660,6 +660,7 @@ async function createLavaPaymentLink(userId, level, duration) {
 }
 
 const subscribeButton = [{ text: "Подписаться", callback_data: "subscribe" }];
+const supportButton = [{ text: "Тех поддержка", callback_data: "support" }];
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
@@ -714,6 +715,7 @@ bot.onText(/\/start/, async (msg) => {
 
   let inlineKeyboard = [
     subscribeButton,
+    supportButton,
     [
       {
         text: 'Сообщество "BAGUVIX"',
@@ -763,17 +765,17 @@ bot.onText(/\/start/, async (msg) => {
       if (!userIsAdmin) await bot.unbanChatMember(-1002306021477, chatId);
       if (!userIsAdminc) await bot.unbanChatMember(-1002451832857, chatId);
       const expireDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-const channelLink = await bot.createChatInviteLink(-1002306021477, {
-  name: "Channel_Invite",
-  expire_date: expireDate,
-  creates_join_request: true,
-});
+      const channelLink = await bot.createChatInviteLink(-1002306021477, {
+        name: "Channel_Invite",
+        expire_date: expireDate,
+        creates_join_request: true,
+      });
 
-const chatLink = await bot.createChatInviteLink(-1002451832857, {
-  name: "Chat_Invite",
-  expire_date: expireDate,
-  creates_join_request: true,
-});
+      const chatLink = await bot.createChatInviteLink(-1002451832857, {
+        name: "Chat_Invite",
+        expire_date: expireDate,
+        creates_join_request: true,
+      });
 
       inlineKeyboard.push([
         {
@@ -834,6 +836,34 @@ bot.on("callback_query", async (query) => {
         }
       );
       bot.userData[chatId].messageId = message.message_id;
+    } else if (data === "support") {
+      const message = await bot.sendMessage(
+        chatId,
+        "Выберите тип обращения:",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Предложить идею", callback_data: "suggest_idea" }],
+              [{ text: "Сообщить о проблеме", callback_data: "report_issue" }],
+              [{ text: "Назад", callback_data: "back_to_main" }],
+            ],
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+    } else if (data === "suggest_idea" || data === "report_issue") {
+      const messageType = data === "suggest_idea" ? "идею" : "проблему";
+      const message = await bot.sendMessage(
+        chatId,
+        `Пожалуйста, напишите ваше сообщение о ${messageType}:`,
+        {
+          reply_markup: {
+            force_reply: true,
+          },
+        }
+      );
+      bot.userData[chatId].messageId = message.message_id;
+      bot.userData[chatId].messageType = messageType;
     } else if (data === "level_1" || data === "level_2") {
       const level = data.split("_")[1];
 
@@ -991,12 +1021,7 @@ bot.on("callback_query", async (query) => {
             {
               reply_markup: {
                 inline_keyboard: [
-                  [
-                    {
-                      text: "Карты РФ",
-                      callback_data: `russian_cards_${level}`,
-                    },
-                  ],
+                  [{ text: "Карты РФ", callback_data: `russian_cards_${level}` }],
                   [
                     {
                       text: "Иностранные карты",
@@ -1053,6 +1078,7 @@ bot.on("callback_query", async (query) => {
           reply_markup: {
             inline_keyboard: [
               subscribeButton,
+              supportButton,
               [
                 {
                   text: 'Сообщество "BAGUVIX"',
@@ -1188,6 +1214,7 @@ bot.on("callback_query", async (query) => {
           reply_markup: {
             inline_keyboard: [
               subscribeButton,
+              supportButton,
               [
                 {
                   text: 'Сообщество "BAGUVIX"',
@@ -1469,13 +1496,13 @@ bot.on("callback_query", async (query) => {
                   expire_date: expireDate,
                   creates_join_request: true,
                 });
-                
+
                 const chatLink = await bot.createChatInviteLink(-1002451832857, {
                   name: "Chat_Invite",
                   expire_date: expireDate,
                   creates_join_request: true,
                 });
-                
+
                 bot.sendMessage(
                   chatId,
                   `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
@@ -1644,6 +1671,7 @@ bot.on("message", async (msg) => {
     bot.userData[chatId].announcementUserId = userId;
   } else {
     const announcementType = bot.userData[chatId]?.announcementType;
+    const messageType = bot.userData[chatId]?.messageType;
 
     if (announcementType) {
       let recipients = [];
@@ -1722,9 +1750,32 @@ bot.on("message", async (msg) => {
 
       delete bot.userData[chatId].announcementType;
       delete bot.userData[chatId].announcementUserId;
+    } else if (messageType) {
+      const messageText = msg.text || msg.caption || "";
+      const messageTypeText =
+        messageType === "идею" ? "предложил идею" : "сообщил о проблеме";
+
+      for (const adminId of adminTelegramIds) {
+        try {
+          await bot.sendMessage(
+            adminId,
+            `Пользователь ${chatId} ${messageTypeText}:\n${messageText}`
+          );
+        } catch (error) {
+          console.error(
+            `Ошибка при отправке сообщения администратору с ID ${adminId}:`,
+            error
+          );
+        }
+      }
+
+      bot.sendMessage(chatId, "Ваше сообщение отправлено тех. поддержке.");
+
+      delete bot.userData[chatId].messageType;
     }
   }
 });
+
 bot.on("chat_join_request", async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
@@ -1762,6 +1813,7 @@ bot.on("chat_join_request", async (msg) => {
     await bot.approveChatJoinRequest(chatId, userId);
   }
 });
+
 const sendlinks = async () => {
   const expireDate =
   Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
@@ -1770,13 +1822,13 @@ const sendlinks = async () => {
     expire_date: expireDate,
     creates_join_request: true,
   });
-  
+
   const chatLink = await bot.createChatInviteLink(-1002451832857, {
     name: "Chat_Invite",
     expire_date: expireDate,
     creates_join_request: true,
   });
-  
+
   bot.sendMessage(
     5793122261,
     `Ссылка на закрытый канал: ${channelLink.invite_link}\nСсылка на закрытый чат: ${chatLink.invite_link}`
@@ -1924,7 +1976,6 @@ function calculateAmount(level, duration) {
 }
 
 const sentLinks = {};
-
 app.post("/webhook/lava", async (req, res) => {
   const event = req.body;
   console.log("Webhook event data:", event);
@@ -2036,3 +2087,4 @@ const chatLink = await bot.createChatInviteLink(-1002451832857, {
     res.status(200).send("Webhook received, but not processed");
   }
 });
+
