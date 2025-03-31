@@ -757,7 +757,7 @@ bot.onText(/\/start/, async (msg) => {
       });
       inlineKeyboard.push([
         {
-          text: "закрытый канал",
+          text: "Закрытый канал",
           url: channelLink.invite_link,
         },
       ]);
@@ -779,11 +779,11 @@ bot.onText(/\/start/, async (msg) => {
 
       inlineKeyboard.push([
         {
-          text: "закрытый канал",
+          text: "Закрытый канал",
           url: channelLink.invite_link,
         },
         {
-          text: "закрытый чат",
+          text: "Закрытый чат",
           url: chatLink.invite_link,
         },
       ]);
@@ -1488,7 +1488,7 @@ bot.on("callback_query", async (query) => {
 
                 bot.sendMessage(
                   chatId,
-                  `закрытый канал: ${channelLink.invite_link}`
+                  `Закрытый канал: ${channelLink.invite_link}`
                 );
               } else if (level === "2") {
                 const channelLink = await bot.createChatInviteLink(-1002306021477, {
@@ -1505,7 +1505,7 @@ bot.on("callback_query", async (query) => {
 
                 bot.sendMessage(
                   chatId,
-                  `закрытый канал: ${channelLink.invite_link}\nзакрытый чат: ${chatLink.invite_link}`
+                  `Закрытый канал: ${channelLink.invite_link}\nЗакрытый чат: ${chatLink.invite_link}`
                 );
               }
 
@@ -1831,7 +1831,7 @@ const sendlinks = async () => {
 
   bot.sendMessage(
     5793122261,
-    `закрытый канал: ${channelLink.invite_link}\nзакрытый чат: ${chatLink.invite_link}`
+    `Закрытый канал: ${channelLink.invite_link}\nЗакрытый чат: ${chatLink.invite_link}`
   );
 }
 sendlinks()
@@ -2009,7 +2009,7 @@ app.post("/webhook/lava", async (req, res) => {
 
       bot.sendMessage(
         userId,
-        `закрытый канал: ${channelLink.invite_link}`
+        `Закрытый канал: ${channelLink.invite_link}`
       );
       sentLinks[userId].channel = true;
     } else if (level === 2 && !sentLinks[userId].chat) {
@@ -2027,7 +2027,7 @@ const chatLink = await bot.createChatInviteLink(-1002451832857, {
 
       bot.sendMessage(
         userId,
-        `закрытый канал: ${channelLink.invite_link}\nзакрытый чат: ${chatLink.invite_link}`
+        `Закрытый канал: ${channelLink.invite_link}\nЗакрытый чат: ${chatLink.invite_link}`
       );
       sentLinks[userId].chat = true;
     }
