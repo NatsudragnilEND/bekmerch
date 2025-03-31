@@ -577,30 +577,27 @@ bot.on("new_chat_members", async (msg) => {
       continue;
     }
 
-    const { data: subscription, error: subscriptionError } = await supabase
+    const { data: subscriptions, error: subscriptionError } = await supabase
       .from("subscriptions")
       .select("*")
       .eq("user_id", user.id)
-      .order("end_date", { ascending: false })
-      .limit(1)
-      .single();
+      .gte("end_date", new Date().toISOString())
+      .order("level", { ascending: false });
 
-    if (
-      subscriptionError ||
-      !subscription ||
-      new Date(subscription.end_date) < new Date()
-    ) {
+    if (subscriptionError || !subscriptions.length) {
       await bot.banChatMember(chatId, userId);
       setTimeout(async () => {
         await bot.unbanChatMember(chatId, userId);
       }, 1000);
     } else {
-      if (chatId === -1002306021477 && subscription.level < 1) {
+      const highestLevelSubscription = subscriptions[0];
+
+      if (chatId === -1002306021477 && highestLevelSubscription.level < 1) {
         await bot.banChatMember(chatId, userId);
         setTimeout(async () => {
           await bot.unbanChatMember(chatId, userId);
         }, 1000);
-      } else if (chatId === -1002451832857 && subscription.level < 2) {
+      } else if (chatId === -1002451832857 && highestLevelSubscription.level < 2) {
         await bot.banChatMember(chatId, userId);
         setTimeout(async () => {
           await bot.unbanChatMember(chatId, userId);
@@ -609,6 +606,7 @@ bot.on("new_chat_members", async (msg) => {
     }
   }
 });
+
 
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
