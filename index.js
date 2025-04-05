@@ -208,7 +208,7 @@ app.post("/api/subscription/extend", async (req, res) => {
   }
 
   const duration = planId === 1 ? 1 : planId === 2 ? 6 : 12;
-  newEndDate.setMonth(newEndDate.getMonth() + duration);
+  newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
 
   const { data, error } = await supabase
     .from("subscriptions")
@@ -331,7 +331,59 @@ async function createPaymentLink(
     throw error;
   }
 }
+schedule.scheduleJob("0 0 * * *", async () => {
+  await checkSubscriptions();
+});
 
+async function checkSubscriptions() {
+  const today = new Date();
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("*")
+    .lte("end_date", today.toISOString())
+    .gte("end_date", new Date(today.setDate(today.getDate() - 1)).toISOString());
+
+  if (error) {
+    console.error("Ошибка при получении подписок для уведомления", error);
+    return;
+  }
+
+  for (const subscription of data) {
+    try {
+      await bot.sendMessage(
+        subscription.user_id,
+        `Ваша подписка истекает сегодня. Пожалуйста, продлите её, чтобы продолжить получать доступ к контенту.`
+      );
+    } catch (error) {
+      console.error("Ошибка при отправке уведомления пользователю", error);
+    }
+  }
+}
+
+async function checkSubscriptions() {
+  const today = new Date();
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("*")
+    .lte("end_date", today.toISOString())
+    .gte("end_date", new Date(today.setDate(today.getDate() - 1)).toISOString());
+
+  if (error) {
+    console.error("Ошибка при получении подписок для уведомления", error);
+    return;
+  }
+
+  for (const subscription of data) {
+    try {
+      await bot.sendMessage(
+        subscription.user_id,
+        `Ваша подписка истекает сегодня. Пожалуйста, продлите её, чтобы продолжить получать доступ к контенту.`
+      );
+    } catch (error) {
+      console.error("Ошибка при отправке уведомления пользователю", error);
+    }
+  }
+}
 schedule.scheduleJob("0 0 * * *", async () => {
   await autoRenewSubscriptions();
   await checkAllMembers();
@@ -1188,12 +1240,13 @@ bot.on("callback_query", async (query) => {
       );
 
       bot.userData[chatId].messageId = message.message_id;
-    } else if (data.startsWith("duration_")) {
+    }else if (data.startsWith("duration_")) {
       const [_, duration, level] = data.split("_");
-
+      const amount = calculateAmount(level, duration); // Calculate amount here
+  
       const message = await bot.sendMessage(
         chatId,
-        `Подписка на Уровень ${level} на ${duration} месяц(ев).\n\nДля оформления нажмите 'Оплатить'.`,
+        `Подписка на Уровень ${level} на ${duration} месяц(ев). Стоимость: ${amount} руб.\n\nДля оформления нажмите 'Оплатить'.`, // Show price
         {
           reply_markup: {
             inline_keyboard: [
@@ -1203,9 +1256,8 @@ bot.on("callback_query", async (query) => {
           },
         }
       );
-
       bot.userData[chatId].messageId = message.message_id;
-    } else if (data === "back_to_main") {
+    }else if (data === "back_to_main") {
       const message = await bot.sendVideo(
         chatId,
         "https://v.mover.uz/hC8FBeYZ_h.mp4",
@@ -1555,7 +1607,7 @@ bot.on("callback_query", async (query) => {
               if (subscription) {
                 newEndDate = new Date(subscription.end_date);
               }
-              newEndDate.setMonth(newEndDate.getMonth() + duration);
+              newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
               if (fetchError) {
                 const { error: insertError } = await supabase
                   .from("subscriptions")
