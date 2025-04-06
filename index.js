@@ -601,11 +601,12 @@ async function checkAllMembers() {
     );
 
     await Promise.all(chunks.map(processChunk));
+    console.log('done processing');
   } catch (error) {
     console.error("Ошибка при проверке участников:", error);
   }
 }
-
+checkAllMembers()
 bot.on("new_chat_members", async (msg) => {
   const chatId = msg.chat.id;
   const newMember = msg.new_chat_members[0]; // Assuming only one new member joins at a time
@@ -620,7 +621,7 @@ bot.on("new_chat_members", async (msg) => {
     .eq("telegram_id", userId)
     .single();
 
-  if (userError) {
+  if (userError || !user) {
     console.error("Ошибка при получении пользователя", userError);
     await bot.banChatMember(chatId, userId);
     setTimeout(async () => {
@@ -646,7 +647,7 @@ bot.on("new_chat_members", async (msg) => {
     const highestLevelSubscription = subscriptions[0];
 
     // Check if the user's subscription level meets the chat's requirements
-    if (chatId === -1002306021477 && highestLevelSubscription.level < 1) {
+    if (chatId === -1002306021477 && highestLevelSubscription.level < 2) {
       await bot.banChatMember(chatId, userId);
       setTimeout(async () => {
         await bot.unbanChatMember(chatId, userId);
