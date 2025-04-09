@@ -1234,11 +1234,22 @@ bot.on("callback_query", async (query) => {
 
       const message = await bot.sendMessage(
         chatId,
-        `Продление подписки на Уровень ${level} на ${duration} месяц(ев).\n\nДля оформления нажмите 'Оплатить'.`,
+        `Продление подписки на Уровень ${level} на ${duration} месяц(ев).\n\nВыберите способ оплаты:`,
         {
           reply_markup: {
             inline_keyboard: [
-              [{ text: "Оплатить", callback_data: `pay_${level}_${duration}` }],
+              [
+                {
+                  text: "Карты РФ",
+                  callback_data: `russian_cards_extend_${level}_${duration}`,
+                },
+              ],
+              [
+                {
+                  text: "Иностранные карты",
+                  callback_data: `foreign_cards_extend_${level}_${duration}`,
+                },
+              ],
               [{ text: "Назад", callback_data: `level_${level}` }],
             ],
           },
@@ -1643,7 +1654,7 @@ bot.on("callback_query", async (query) => {
 
                 if (updateError) {
                   console.error("Error updating subscription:", updateError);
-                  return res.status(500).send("Error updating subscription");
+                  throw new Error("Error updating subscription");
                 }
               }
             }
@@ -1662,6 +1673,197 @@ bot.on("callback_query", async (query) => {
         );
         console.log(error);
       }
+    } else if (data.startsWith("russian_cards_extend_")) {
+      const [_, level, duration] = data.split("_");
+      const amount = calculateAmount(level, duration);
+      const { data: user, error } = await supabase
+        .from("usersa")
+        .select("id")
+        .eq("telegram_id", chatId)
+        .single();
+
+      if (error) {
+        console.error("Ошибка при получении пользователя", error);
+        return bot.sendMessage(
+          chatId,
+          "Произошла ошибка при получении информации о пользователе."
+        );
+      }
+
+      const userId = user.id;
+
+      try {
+        const { paymentLink, paymentId } = await createPaymentLink(
+          amount,
+          "RUB",
+          `${userId}_${level}_${duration}`,
+          "customer@example.com",
+          userId,
+          level,
+          duration
+        );
+
+        const message = await bot.sendMessage(
+          chatId,
+          `Оплатите подписку по ссылке:`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "Оплатить", url: paymentLink }],
+                [{ text: "Назад", callback_data: `extend_${duration}_${level}` }],
+              ],
+            },
+          }
+        );
+
+        bot.userData[chatId].messageId = message.message_id;
+
+        const checkPaymentInterval = setInterval(async () => {
+          try {
+            const confirmation = await confirmPayment(
+              paymentId,
+              tinkoffTerminalKey,
+              tinkoffPassword,
+              userId,
+              level,
+              duration
+            );
+
+            if (confirmation.success) {
+              clearInterval(checkPaymentInterval);
+              const expireDate =
+                Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+              if (level === "1") {
+                const channelLink = await bot.createChatInviteLink(
+                  -1002306021477,
+                  {
+                    name: "Channel_Invite",
+                    expire_date: expireDate,
+                    creates_join_request: true,
+                  }
+                );
+
+                bot.sendMessage(
+                  chatId,
+                  `Закрытый канал: ${channelLink.invite_link}`
+                );
+              } else if (level === "2") {
+                const channelLink = await bot.createChatInviteLink(
+                  -1002306021477,
+                  {
+                    name: "Channel_Invite",
+                    expire_date: expireDate,
+                    creates_join_request: true,
+                  }
+                );
+
+                const chatLink = await bot.createChatInviteLink(
+                  -1002451832857,
+                  {
+                    name: "Chat_Invite",
+                    expire_date: expireDate,
+                    creates_join_request: true,
+                  }
+                );
+
+                bot.sendMessage(
+                  chatId,
+                  `Закрытый канал: ${channelLink.invite_link}\nЗакрытый чат: ${chatLink.invite_link}`
+                );
+              }
+
+              const message = await bot.sendMessage(
+                chatId,
+                "Оплата подтверждена! Ваша подписка активирована.",
+                {
+                  reply_markup: {
+                    inline_keyboard: [
+                      [{ text: "Назад", callback_data: "back_to_main" }],
+                    ],
+                  },
+                }
+              );
+
+              bot.userData[chatId].messageId = message.message_id;
+
+              const { data: user, error: usererror } = await supabase
+                .from("usersa")
+                .select("*")
+                .eq("telegram_id", chatId)
+                .single();
+
+              const { data: subscription, error: fetchError } = await supabase
+                .from("subscriptions")
+                .select("*")
+                .eq("user_id", user.id)
+                .eq("level", level)
+                .order("end_date", { ascending: false })
+                .limit(1)
+                .single();
+
+              let newEndDate = new Date();
+              if (subscription) {
+                newEndDate = new Date(subscription.end_date);
+              }
+              newEndDate.setMonth(newEndDate.getMonth() + parseInt(duration));
+              if (fetchError) {
+                const { error: insertError } = await supabase
+                  .from("subscriptions")
+                  .insert([
+                    {
+                      user_id: userId,
+                      level: level,
+                      start_date: new Date(),
+                      end_date: newEndDate,
+                      auto_renew: true,
+                    },
+                  ]);
+              } else {
+                const { error: updateError } = await supabase
+                  .from("subscriptions")
+                  .update({ end_date: newEndDate })
+                  .eq("id", subscription.id);
+
+                if (updateError) {
+                  console.error("Error updating subscription:", updateError);
+                  throw new Error("Error updating subscription");
+                }
+              }
+            }
+          } catch (error) {
+            clearInterval(checkPaymentInterval);
+            bot.sendMessage(
+              chatId,
+              "Произошла ошибка при проверке оплаты. Пожалуйста, попробуйте позже."
+            );
+          }
+        }, 1000);
+      } catch (error) {
+        bot.sendMessage(
+          chatId,
+          "Произошла ошибка при создании платежа. Пожалуйста, попробуйте позже."
+        );
+        console.log(error);
+      }
+    } else if (data.startsWith("foreign_cards_extend_")) {
+      const [_, level, duration] = data.split("_");
+
+      const paymentLink = await createLavaPaymentLink(chatId, level, duration);
+
+      const message = await bot.sendMessage(
+        chatId,
+        `Оплатите подписку по ссылке:`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Оплатить", url: paymentLink }],
+              [{ text: "Назад", callback_data: `extend_${duration}_${level}` }],
+            ],
+          },
+        }
+      );
+
+      bot.userData[chatId].messageId = message.message_id;
     } else if (data === "make_announcement") {
       const message = await bot.sendMessage(
         chatId,
@@ -1947,14 +2149,7 @@ const sendlinks = async () => {
   );
 };
 sendlinks();
-async function confirmPayment(
-  paymentId,
-  tinkoffTerminalKey,
-  tinkoffPassword,
-  userId,
-  level,
-  duration
-) {
+async function confirmPayment(paymentId, tinkoffTerminalKey, tinkoffPassword, userId, level, duration) {
   const url = "https://securepay.tinkoff.ru/v2/GetState";
 
   const payload = {
@@ -2074,6 +2269,7 @@ async function confirmPayment(
     throw error;
   }
 }
+
 
 function calculateAmount(level, duration) {
   const prices = {
